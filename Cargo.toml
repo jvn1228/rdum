@@ -1,0 +1,8 @@
+[package]
+name = "rdum"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rodio = { version = "0.20.1", features = ["symphonia-wav"] }
+crossterm = "0.28.1"
