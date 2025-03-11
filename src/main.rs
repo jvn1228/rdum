@@ -9,11 +9,25 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
+use spin_sleep;
 
 enum Commands {
     SetTempo(f32),
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
+}
+
+enum Division {
+    W = 1,
+    H = 2,
+    QD = 3,
+    Q = 4,
+    ED = 6,
+    E = 8,
+    SD = 12,
+    S = 16,
+    TD = 24,
+    T = 32,
 }
 
 #[derive(Clone)]
@@ -120,28 +134,42 @@ impl Track {
 pub struct Sequencer {
     pub stream: Arc<OutputStreamHandle>,
     pub tracks: Vec<Track>,
-    pub idx: usize,
+    pub trk_idx: usize,
     pub len: usize,
     // Average of current and last cycle time
     latency: Duration,
     tempo: u8,
-    beat_interval: Duration,
-    sleep_interval: Duration
-
+    division: u8,
+    pulse_interval: Duration,
+    sleep_interval: Duration,
+    // pulses per beat
+    ppb: u8,
+    pulse_idx: u8,
 }
 
+// Maybe tracks should have independent lengths?
+// But we actually need to trigger notes based on 24 pulses in a second not every sleep cycle....
 impl Sequencer {
     pub fn new(len: usize, stream: Arc<OutputStreamHandle>) -> Sequencer {
         Sequencer {
             stream,
             tracks: vec![],
-            idx: 0,
+            trk_idx: 0,
             len,
             tempo: 120,
+            // allowable set{1,2,3,4,6,8,12,16,24,32}
+            division: 8,
             latency: Duration::ZERO,
-            beat_interval: Duration::from_millis(500),
-            sleep_interval: Duration::from_millis(500)
+            pulse_interval: Duration::from_secs_f32(1.0/24.0),
+            sleep_interval: Duration::from_secs_f32(1.0/24.0),
+            // pulses per bar, 24 per quarter note
+            ppb: 24*4,
+            pulse_idx: 0,
         }
+    }
+
+    pub fn set_tempo(&mut self, bpm: u8) {
+        self.tempo = bpm;
     }
 
     pub fn add_track(&mut self, name: String, sample: Arc<BufferedSample>) -> Result<&Track, Box<dyn Error>> {
@@ -154,16 +182,23 @@ impl Sequencer {
 
     pub fn play_next(&mut self) {
         let start = Instant::now();
-        for t in &self.tracks {
-            let vel = t.slots[self.idx].velocity.lock().unwrap();
-            if *vel > 0 {
-                t.sink.append((*t.sample).clone());
-                if t.sink.len() > 1 {
-                    t.sink.skip_one();
+        // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
+        // and then in fact we might have to move that tracking to the track
+        if self.pulse_idx % (self.ppb / self.division) == 0 {
+            for t in &self.tracks {
+                let vel = t.slots[self.trk_idx].velocity.lock().unwrap();
+                if *vel > 0 {
+                    t.sink.append((*t.sample).clone().amplify(*vel as f32 / 127.0));
+                    if t.sink.len() > 1 {
+                        t.sink.skip_one();
+                    }
                 }
             }
+            self.trk_idx = (self.trk_idx + 1) % self.len;
         }
-        self.idx = (self.idx + 1) % self.len;
+        self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
+        
+        // to do send midi clk msg
         self.set_latency(Instant::now().duration_since(start));
     }
 
@@ -173,11 +208,15 @@ impl Sequencer {
 
     fn set_latency(&mut self, t: Duration) {
         self.latency = Duration::from_nanos(((self.latency + t).as_nanos() / 2) as u64);
-        self.sleep_interval = self.beat_interval - self.beat_interval.min(self.latency);
+        self.sleep_interval = self.pulse_interval - self.pulse_interval.min(self.latency);
+    }
+
+    fn set_division(&mut self, division: Division) {
+        self.division = division as u8;
     }
 
     pub fn sleep(&self) {
-        thread::sleep(self.sleep_interval);
+        spin_sleep::sleep(self.sleep_interval);
     }
 }
 
@@ -213,21 +252,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });      
 
     let mut sequencer = Sequencer::new(8, stream_handle);
+    sequencer.set_tempo(160);
+    sequencer.set_division(Division::S);
 
     let sample_hat = BufferedSample::load_from_file(&format!("{pwd}/one_shots/hat0.wav").to_string())?;
     let sample_hat = Arc::new(sample_hat);
     let trk_hat = sequencer.add_track("Hat".to_string(), Arc::clone(&sample_hat))?;
-    trk_hat.set_slots_vel(&[0, 127, 0, 127, 0, 127, 0, 127]);
+    trk_hat.set_slots_vel(&[32, 127, 32, 108, 32, 127, 32, 108]);
 
     let sample_kick = BufferedSample::load_from_file(&format!("{pwd}/one_shots/kick0.wav").to_string())?;
     let sample_kick = Arc::new(sample_kick);
     let trk_kick = sequencer.add_track("Kick".to_string(), Arc::clone(&sample_kick))?;
-    trk_kick.set_slots_vel(&[127, 0, 127, 127, 0, 127, 0, 127]);
+    trk_kick.set_slots_vel(&[127, 0, 56, 127, 0, 127, 0, 75]);
 
     let sample_snare = BufferedSample::load_from_file(&format!("{pwd}/one_shots/snare0.wav").to_string())?;
     let sample_snare = Arc::new(sample_snare);
     let trk_snare = sequencer.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 0, 127, 0]);
+    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);
 
     thread::spawn(move || {
         run_loop(&mut sequencer);
