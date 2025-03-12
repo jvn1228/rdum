@@ -10,11 +10,13 @@ use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
 use spin_sleep;
+use std::io::Write;
 
 enum Commands {
     SetTempo(f32),
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
+    PlaySound(u8),
 }
 
 enum Division {
@@ -28,6 +30,57 @@ enum Division {
     S = 16,
     TD = 24,
     T = 32,
+}
+
+pub trait Display {
+    fn write_state(&self, s: SeqState) -> Result<(), Box<dyn Error>>;
+}
+
+pub struct MockDisplay {}
+
+impl Display for MockDisplay {
+    fn write_state(&self, s: SeqState) -> Result<(), Box<dyn Error>> {
+        print!("\r{:?}", s);
+        std::io::stdout().flush();
+        Ok(())    
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrackState {
+    slots: Vec<u8>,
+    name: String
+}
+
+#[derive(Debug)]
+pub struct SeqState {
+    tempo: u8,
+    trk_idx: usize,
+    trks: Vec<TrackState>,
+    division: u8,
+    len: usize,
+    latency: Duration
+}
+
+pub struct Controller<T: Display> {
+    state_rx: mpsc::Receiver<SeqState>,
+    display: T,
+}
+
+impl<T: Display> Controller<T> {
+    pub fn new(state_rx: mpsc::Receiver<SeqState>, display: T) -> Controller<T> {
+        Controller {
+            state_rx,
+            display
+        }
+    }
+
+    // Still need a refresh rate and throw out in between msgs
+    pub fn run_loop(&self) {
+        for received in &self.state_rx {
+            self.display.write_state(received).unwrap();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -145,6 +198,7 @@ pub struct Sequencer {
     // pulses per beat
     ppb: u8,
     pulse_idx: u8,
+    state_ch: Vec<mpsc::Sender<SeqState>>
 }
 
 // Maybe tracks should have independent lengths?
@@ -165,6 +219,7 @@ impl Sequencer {
             // pulses per bar, 24 per quarter note
             ppb: 24*4,
             pulse_idx: 0,
+            state_ch: vec![]
         }
     }
 
@@ -197,6 +252,7 @@ impl Sequencer {
             self.trk_idx = (self.trk_idx + 1) % self.len;
         }
         self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
+        self.tx_state();
         
         // to do send midi clk msg
         self.set_latency(Instant::now().duration_since(start));
@@ -213,6 +269,32 @@ impl Sequencer {
 
     fn set_division(&mut self, division: Division) {
         self.division = division as u8;
+    }
+
+    pub fn get_state_rx(&mut self) -> mpsc::Receiver<SeqState> {
+        let (tx, rx) = mpsc::channel();
+        self.state_ch.push(tx);
+        rx
+    }
+
+    fn tx_state(&self) {
+        let mut trks = vec![];
+        for t in &self.tracks {
+            trks.push(TrackState {
+                slots: t.slots.iter().map(|s| { *s.velocity.lock().unwrap() }).collect(),
+                name: t.name.clone()
+            })
+        }
+        for tx in &self.state_ch {
+            let _ = tx.send(SeqState {
+                tempo: self.tempo,
+                trk_idx: self.trk_idx,
+                trks: trks.clone(),
+                division: self.division,
+                len: self.len,
+                latency: self.latency
+            });
+        }
     }
 
     pub fn sleep(&self) {
@@ -252,6 +334,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });      
 
     let mut sequencer = Sequencer::new(8, stream_handle);
+
+    let seq_state_rx = sequencer.get_state_rx();
+    let controller = Controller::new(seq_state_rx, MockDisplay{});
+    thread::spawn(move || {
+        controller.run_loop();
+    });
+
     sequencer.set_tempo(160);
     sequencer.set_division(Division::S);
 
@@ -275,49 +364,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });                                                                                                                        
                                                                                                                                               
     loop {                                                                                                                                    
-        match rx.recv()? {                                                                                                                    
-            // event::KeyEvent {                                                                                                                 
-            //     code: KeyCode::Char(' '),                                                                                                     
-            //     ..                                                                                                                            
-            // } => {
-            //     if sink.is_paused() {                                                                                                         
-            //         sink.play();                                                                                                              
-            //     }                                                                                                                       
-            //     if sink.empty() {                                                             
-            //         sink.append(sample.decoder().convert_samples::<f32>());                                                                                              
-            //     } else {        
-            //         sink.append(sample.decoder().convert_samples::<f32>());                                                                                                                                                                                                                     
-            //         sink.skip_one();                                                          
-            //     }                                                                                                                                                                                                                                                        
-            // },
-            // event::KeyEvent {                                                                                                                 
-            //     code: KeyCode::Char('a'),                                                                                                     
-            //     ..                                                                                                                            
-            // } => {
-            //     if sink2.is_paused() {                                                                                                         
-            //         sink2.play();                                                                                                              
-            //     }                                                                                                                       
-            //     if sink2.empty() {                                                             
-            //         sink2.append(s2.decoder().convert_samples::<f32>());                                                                                              
-            //     } else {        
-            //         sink2.append(s2.decoder().convert_samples::<f32>());                                                                                                                                                                                                                     
-            //         sink2.skip_one();                                                          
-            //     }                                                                                                                                                                                                                                                        
-            // },
-            // event::KeyEvent {                                                                                                                 
-            //     code: KeyCode::Char('d'),                                                                                                     
-            //     ..                                                                                                                            
-            // } => {
-            //     if sink3.is_paused() {                                                                                                         
-            //         sink3.play();                                                                                                              
-            //     }                                                                                                                       
-            //     if sink3.empty() {                                                             
-            //         sink3.append(s3.decoder().convert_samples::<f32>());                                                                                              
-            //     } else {        
-            //         sink3.append(s3.decoder().convert_samples::<f32>());                                                                                                                                                                                                                     
-            //         sink3.skip_one();                                                          
-            //     }                                                                                                                                                                                                                                                        
-            // },                                                                                                                    
+        match rx.recv()? {                                                                                                                                                                                                                                      
             event::KeyEvent {                                                                                                                 
                 code: KeyCode::Esc,                                                                                                           
                 ..                                                                                                                            
