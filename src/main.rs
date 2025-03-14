@@ -55,9 +55,20 @@ impl Display for CLIDisplay {
         self.stdout.execute(terminal::Clear(terminal::ClearType::All))?;
         self.stdout.execute(cursor::MoveTo(0,0))?;
 
+        let name_offset: usize = s.trks.iter().map(|t| { t.name.len() }).max().unwrap();
+        for trk in &s.trks {
+            if trk.name.len() < name_offset {
+                self.stdout.execute(cursor::MoveRight((name_offset - trk.name.len()) as u16))?;
+            }
+            print!("{}", trk.name);
+            self.stdout.execute(cursor::MoveToNextLine(1))?;
+        }
+
+        self.stdout.execute(cursor::MoveTo(0,0))?;
+
         for slot in 0..s.len {
             for (row, trk) in s.trks.iter().enumerate() {
-                self.stdout.execute(cursor::MoveTo(slot as u16, row as u16))?;
+                self.stdout.execute(cursor::MoveTo((slot + name_offset) as u16 + 1, row as u16))?;
                 // Setting the idx back by 1 aligns the eye and ears perceptually better
                 // that is, the jump from slot 1 -> 2 is when the 2 sound hits
                 if slot == (s.trk_idx + s.len - 1) % s.len {
