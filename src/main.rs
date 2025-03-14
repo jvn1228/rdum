@@ -1,16 +1,17 @@
 use crossterm::{                                                                                                                              
     event::{self, Event as CEvent, KeyCode},                                                                                                  
     execute,                                                                                                                                  
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},                                                                             
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+    cursor,
+    ExecutableCommand                                                                     
 };                                                                                                                                            
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};                                                                                     
-use std::{io, sync::mpsc, thread, time::Duration};
+use std::{io::{self, Stdout}, sync::mpsc, thread, time::Duration};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
 use spin_sleep;
-use std::io::Write;
 
 enum Commands {
     SetTempo(f32),
@@ -33,15 +34,61 @@ enum Division {
 }
 
 pub trait Display {
-    fn write_state(&self, s: SeqState) -> Result<(), Box<dyn Error>>;
+    fn write_state(&mut self, s: SeqState) -> Result<(), Box<dyn Error>>;
+}
+
+pub struct CLIDisplay {
+    stdout: Stdout,
+}
+
+impl CLIDisplay {
+    fn new() -> Result<CLIDisplay, Box<dyn Error>> {
+        let mut stdout = io::stdout();
+        stdout.execute(cursor::Hide)?;
+        Ok(CLIDisplay {
+            stdout
+        })
+    }
+}
+
+impl Display for CLIDisplay {
+    fn write_state(&mut self, s: SeqState) -> Result<(), Box<dyn Error>> {
+        self.stdout.execute(terminal::Clear(terminal::ClearType::All))?;
+        self.stdout.execute(cursor::MoveTo(0,0))?;
+
+        for slot in 0..s.len {
+            for (row, trk) in s.trks.iter().enumerate() {
+                self.stdout.execute(cursor::MoveTo(slot as u16, row as u16))?;
+                // Setting the idx back by 1 aligns the eye and ears perceptually better
+                // that is, the jump from slot 1 -> 2 is when the 2 sound hits
+                if slot == (s.trk_idx + s.len - 1) % s.len {
+                    print!("O");
+                } else if trk.slots[slot] > 0 {
+                    print!("X");
+                } else {
+                    print!("_");
+                }
+            }
+        }
+        
+        self.stdout.execute(cursor::MoveToNextLine(2))?;
+        print!("Tempo: {} bpm", s.tempo);
+        self.stdout.execute(cursor::MoveToNextLine(1))?;
+        print!("Division: 1/{}", s.division);
+        self.stdout.execute(cursor::MoveToNextLine(1))?;
+        print!("Accounting for latency: {:?}", s.latency);
+        self.stdout.execute(cursor::MoveToNextLine(1))?;
+
+        Ok(())
+    }
 }
 
 pub struct MockDisplay {}
 
 impl Display for MockDisplay {
-    fn write_state(&self, s: SeqState) -> Result<(), Box<dyn Error>> {
-        print!("\r{:?}", s);
-        std::io::stdout().flush();
+    fn write_state(&mut self, s: SeqState) -> Result<(), Box<dyn Error>> {
+        execute!(io::stdout(), cursor::MoveTo(0,0))?;
+        println!("{:?}", s);
         Ok(())    
     }
 }
@@ -65,20 +112,27 @@ pub struct SeqState {
 pub struct Controller<T: Display> {
     state_rx: mpsc::Receiver<SeqState>,
     display: T,
+    refresh_interval: Duration,
 }
 
 impl<T: Display> Controller<T> {
     pub fn new(state_rx: mpsc::Receiver<SeqState>, display: T) -> Controller<T> {
         Controller {
             state_rx,
-            display
+            display,
+            refresh_interval: Duration::from_secs_f32(1.0/12.0)
         }
     }
 
     // Still need a refresh rate and throw out in between msgs
-    pub fn run_loop(&self) {
+    pub fn run_loop(&mut self) {
+        let mut last_refresh = Instant::now();
+
         for received in &self.state_rx {
-            self.display.write_state(received).unwrap();
+            if Instant::now().duration_since(last_refresh) > self.refresh_interval {
+                self.display.write_state(received).unwrap();
+                last_refresh = Instant::now();
+            }
         }
     }
 }
@@ -278,13 +332,12 @@ impl Sequencer {
     }
 
     fn tx_state(&self) {
-        let mut trks = vec![];
-        for t in &self.tracks {
-            trks.push(TrackState {
+        let trks: Vec<TrackState> = self.tracks.iter().map(|t| {
+            TrackState {
                 slots: t.slots.iter().map(|s| { *s.velocity.lock().unwrap() }).collect(),
                 name: t.name.clone()
-            })
-        }
+            }
+        }).collect();
         for tx in &self.state_ch {
             let _ = tx.send(SeqState {
                 tempo: self.tempo,
@@ -336,7 +389,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sequencer = Sequencer::new(8, stream_handle);
 
     let seq_state_rx = sequencer.get_state_rx();
-    let controller = Controller::new(seq_state_rx, MockDisplay{});
+    let mut controller = Controller::new(seq_state_rx, CLIDisplay::new()?);
     thread::spawn(move || {
         controller.run_loop();
     });
@@ -357,7 +410,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sample_snare = BufferedSample::load_from_file(&format!("{pwd}/one_shots/snare0.wav").to_string())?;
     let sample_snare = Arc::new(sample_snare);
     let trk_snare = sequencer.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);
+    trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);
 
     thread::spawn(move || {
         run_loop(&mut sequencer);
