@@ -11,7 +11,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
-use spin_sleep;
 
 enum Commands {
     SetTempo(f32),
@@ -142,7 +141,7 @@ pub struct BufferedSample {
     sample_rate: u32,
     channels: u16,
     current_sample: usize,
-    buffer: Box<Vec<f32>>,
+    buffer: Arc<Vec<f32>>,
 }
 
 impl BufferedSample {
@@ -152,10 +151,11 @@ impl BufferedSample {
         let sample_rate = decoder.sample_rate();
         let channels = decoder.channels();
         let decoder = decoder.convert_samples::<f32>();
-        let mut buffer = Box::new(vec![]);
+        let mut buffer = vec![];
         for d in decoder.buffered() {
             buffer.push(d);
         }
+        let buffer = Arc::new(buffer);
         Ok(BufferedSample {
             sample_rate,
             channels,
@@ -174,7 +174,7 @@ impl Iterator for BufferedSample
             return None
         }
         let b = self.buffer[self.current_sample];
-        self.current_sample = self.current_sample + 1;
+        self.current_sample += 1;
         Some(b)
     }
 }
@@ -286,7 +286,7 @@ impl Sequencer {
         let sink = Arc::new(sink);
         sink.play();
         self.tracks.push(Track::new(name, self.len, sample, sink));
-        Ok(&self.tracks.last().unwrap())
+        Ok(self.tracks.last().unwrap())
     }
 
     pub fn play_next(&mut self) {
@@ -417,16 +417,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });                                                                                                                        
                                                                                                                                               
     loop {                                                                                                                                    
-        match rx.recv()? {                                                                                                                                                                                                                                      
-            event::KeyEvent {                                                                                                                 
+        if let event::KeyEvent {                                                                                                                 
                 code: KeyCode::Esc,                                                                                                           
-                ..                                                                                                                            
-            } => {                                                                                                                            
-                break;                                                                                                                        
-            },                                                                                                                                
-            _ => {}                                                                                                                           
-        }                                                                                                                                     
-    }                                                                                                                                      
+                ..                                                                                                                         
+            } = rx.recv()? {                                                                                                                            
+            
+            break;
+        }                                                                                                                    
+    }                                                                                                                              
                                                                                                                                               
     // Cleanup                                                                                                                                
     terminal::disable_raw_mode()?;                                                                                                            
