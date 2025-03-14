@@ -1,5 +1,6 @@
 mod sequencer;
 mod display;
+mod controller;
 
 use crossterm::{                                                                                                                              
     event::{self, Event as CEvent, KeyCode},                                                                                                  
@@ -9,42 +10,6 @@ use crossterm::{
 use rodio::OutputStream;                                                                                     
 use std::{io, sync::mpsc, thread, time::Duration};
 use std::sync::Arc;
-use std::time::Instant;
-
-enum Commands {
-    SetTempo(f32),
-    SetSlotVelocity(u8, u8),
-    SetSequencerLength(usize),
-    PlaySound(u8),
-}
-
-pub struct Controller<T: display::Display> {
-    state_rx: mpsc::Receiver<sequencer::State>,
-    display: T,
-    refresh_interval: Duration,
-}
-
-impl<T: display::Display> Controller<T> {
-    pub fn new(state_rx: mpsc::Receiver<sequencer::State>, display: T) -> Controller<T> {
-        Controller {
-            state_rx,
-            display,
-            refresh_interval: Duration::from_secs_f32(1.0/12.0)
-        }
-    }
-
-    // Still need a refresh rate and throw out in between msgs
-    pub fn run_loop(&mut self) {
-        let mut last_refresh = Instant::now();
-
-        for received in &self.state_rx {
-            if Instant::now().duration_since(last_refresh) > self.refresh_interval {
-                self.display.write_state(received).unwrap();
-                last_refresh = Instant::now();
-            }
-        }
-    }
-}
 
 fn run_loop(seq: &mut sequencer::Sequencer) {
     loop {
@@ -80,9 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut seq = sequencer::Sequencer::new(8, stream_handle);
 
     let seq_state_rx = seq.get_state_rx();
-    let mut controller = Controller::new(seq_state_rx, display::CLIDisplay::new()?);
+    let mut ctrl = controller::Controller::new(seq_state_rx, display::CLIDisplay::new()?);
     thread::spawn(move || {
-        controller.run_loop();
+        ctrl.run_loop();
     });
 
     seq.set_tempo(160);
