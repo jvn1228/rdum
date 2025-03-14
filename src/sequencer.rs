@@ -187,7 +187,7 @@ impl Sequencer {
         Ok(self.tracks.last().unwrap())
     }
 
-    pub fn play_next(&mut self) {
+    fn play_next(&mut self) {
         let start = Instant::now();
         // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
         // and then in fact we might have to move that tracking to the track
@@ -244,7 +244,14 @@ impl Sequencer {
         }
     }
 
-    pub fn sleep(&self) {
+    fn sleep(&self) {
         spin_sleep::sleep(self.sleep_interval);
+    }
+
+    pub fn run_loop(&mut self) {
+        loop {
+            self.play_next();
+            self.sleep();
+        }
     }
 }

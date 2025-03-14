@@ -10,14 +10,8 @@ use crossterm::{
 use rodio::OutputStream;                                                                                     
 use std::{io, sync::mpsc, thread, time::Duration};
 use std::sync::Arc;
-
-fn run_loop(seq: &mut sequencer::Sequencer) {
-    loop {
-        seq.play_next();
-        seq.sleep();
-    }
-}
-                                                                                                                                              
+use std::thread::yield_now;
+                                                                                                                                             
 fn main() -> Result<(), Box<dyn std::error::Error>> {      
     let pwd = env!("CARGO_MANIFEST_DIR");       
     println!("{}", pwd);                                                                             
@@ -69,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);
 
     thread::spawn(move || {
-        run_loop(&mut seq);
+        seq.run_loop();
     });                                                                                                                        
                                                                                                                                               
     loop {                                                                                                                                    
@@ -79,7 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } = rx.recv()? {                                                                                                                            
             
             break;
-        }                                                                                                                    
+        }
+        yield_now();                                                                                                                 
     }                                                                                                                              
                                                                                                                                               
     // Cleanup                                                                                                                                
