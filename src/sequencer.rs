@@ -5,6 +5,13 @@ use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
 
+#[derive(Debug)]
+pub enum Command {
+    SetTempo(f32),
+    SetSlotVelocity(u8, u8),
+    SetSequencerLength(usize),
+    PlaySound(u8),
+}
 pub enum Division {
     W = 1,
     H = 2,
@@ -96,7 +103,7 @@ impl Source for BufferedSample {
 }
 
 pub struct Slot {
-    pub velocity: Arc<Mutex<u8>>,
+    pub velocity: u8,
 }
 
 pub struct Track {
@@ -111,7 +118,7 @@ impl Track {
         let mut slots = vec![];
         for _ in 0..len {
             slots.push(Slot {
-                velocity: Arc::new(Mutex::new(0))
+                velocity: 0
             });
         }
         Track {
@@ -121,87 +128,172 @@ impl Track {
             name
         }
     }
+}
+
+pub struct Props {
+    pub tracks: Vec<Track>,
+    pub len: usize,
+    tempo: u8,
+    division: u8,
+}
+
+#[derive(Clone)]
+pub struct PropsHandle {
+    inner: Arc<Mutex<Props>>
+}
+
+impl PropsHandle {
+    pub fn new(props: Props) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(props))
+        }
+    }
+
+    pub fn with_lock<F, T>(&self, func: F) -> T
+    where
+        F: FnOnce(&mut Props) -> T,
+    {
+        let mut lock = self.inner.lock().unwrap();
+        let result = func(&mut *lock);
+        drop(lock);
+        result
+    }
+
+    pub fn set_tempo(&self, t: u8) -> u8 {
+        self.with_lock(|props| {
+            props.tempo = t;
+            props.tempo
+        })
+    }
+
+    pub fn division(&self) -> u8 {
+        self.with_lock(|props| { props.division })
+    }
+
+    pub fn set_division(&self, division: Division) -> u8 {
+        self.with_lock(|props| {
+            props.division = division as u8;
+            props.division
+        })
+    }
+}
+
+pub struct TrackHandle {
+    inner: PropsHandle,
+    trk: u8
+}
+
+impl TrackHandle {
+    fn new(props_handle: PropsHandle, trk: u8) -> Self {
+        Self {
+            inner: props_handle,
+            trk
+        }
+    }
+
+    pub fn with_lock<F, T>(&self, func: F) -> T
+    where
+        F: FnOnce(&mut Track) -> T,
+    {
+        self.inner.with_lock(|props| {
+            let t = &mut props.tracks[self.trk as usize];
+            func(t)
+        })
+    }
 
     pub fn set_slot_vel(&self, slot: usize, vel: u8) {
-        *self.slots[slot].velocity.lock().unwrap() = vel;
+        self.with_lock(|trk| {
+            trk.slots[slot].velocity = vel;
+        })
     }
 
     pub fn set_slots_vel(&self, vels: &[u8]) {
-        for (i, v) in vels.iter().enumerate() {
-            if i >= self.slots.len() {
-                break;
+        self.with_lock(|trk| {
+            for (i, v) in vels.iter().enumerate() {
+                if i >= trk.slots.len() {
+                    break;
+                }
+                trk.slots[i].velocity = *v;
             }
-            self.set_slot_vel(i, *v);
-        }
+        })
     }
 }
 
 pub struct Sequencer {
+    pub props: PropsHandle,
     pub stream: Arc<OutputStreamHandle>,
-    pub tracks: Vec<Track>,
     pub trk_idx: usize,
-    pub len: usize,
     // Average of current and last cycle time
     latency: Duration,
-    tempo: u8,
-    division: u8,
     pulse_interval: Duration,
     sleep_interval: Duration,
     // pulses per beat
     ppb: u8,
     pulse_idx: u8,
-    state_ch: Vec<mpsc::Sender<State>>
+    state_tx_ch: Vec<mpsc::Sender<State>>,
+    // command_rx_ch: Arc<mpsc::Receiver<Command>>,
+    command_tx_ch: mpsc::Sender<Command>,
 }
 
 // Maybe tracks should have independent lengths?
-// But we actually need to trigger notes based on 24 pulses in a second not every sleep cycle....
 impl Sequencer {
     pub fn new(len: usize, stream: Arc<OutputStreamHandle>) -> Sequencer {
+        let (command_tx, command_rx) = mpsc::channel();
         Sequencer {
+            props: PropsHandle::new(Props {
+                tracks: vec![],
+                len,
+                tempo: 120,
+                // allowable set{1,2,3,4,6,8,12,16,24,32}
+                division: 8,
+            }),
             stream,
-            tracks: vec![],
             trk_idx: 0,
-            len,
-            tempo: 120,
-            // allowable set{1,2,3,4,6,8,12,16,24,32}
-            division: 8,
             latency: Duration::ZERO,
             pulse_interval: Duration::from_secs_f32(1.0/24.0),
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
             // pulses per bar, 24 per quarter note
             ppb: 24*4,
             pulse_idx: 0,
-            state_ch: vec![]
+            state_tx_ch: vec![],
+            // command_rx_ch: Arc::new(command_rx),
+            command_tx_ch: command_tx
         }
     }
 
     pub fn set_tempo(&mut self, bpm: u8) {
-        self.tempo = bpm;
+        self.props.set_tempo(bpm);
     }
 
-    pub fn add_track(&mut self, name: String, sample: Arc<BufferedSample>) -> Result<&Track, Box<dyn Error>> {
+    // Because trks are wrapped in a property handler to ensure thread safety, we can't directly return access
+    // to the track. Instead the index of the created track is returned for reference
+    pub fn add_track(&mut self, name: String, sample: Arc<BufferedSample>) -> Result<TrackHandle, Box<dyn Error>> {
         let sink = Sink::try_new(&self.stream)?;
         let sink = Arc::new(sink);
         sink.play();
-        self.tracks.push(Track::new(name, self.len, sample, sink));
-        Ok(self.tracks.last().unwrap())
+        self.props.with_lock(|props| {
+            props.tracks.push(Track::new(name, props.len, sample, sink));
+            Ok(TrackHandle::new(self.props.clone(), props.tracks.len() as u8 - 1))
+        })
     }
 
     fn play_next(&mut self) {
         let start = Instant::now();
         // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
         // and then in fact we might have to move that tracking to the track
-        if self.pulse_idx % (self.ppb / self.division) == 0 {
-            for t in &self.tracks {
-                let vel = t.slots[self.trk_idx].velocity.lock().unwrap();
-                if *vel > 0 {
-                    t.sink.append((*t.sample).clone().amplify(*vel as f32 / 127.0));
-                    if t.sink.len() > 1 {
-                        t.sink.skip_one();
+        if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
+            self.props.with_lock(|props| {
+                for t in &mut props.tracks {
+                    let vel = &mut t.slots[self.trk_idx].velocity;
+                    if *vel > 0 {
+                        t.sink.append((*t.sample).clone().amplify(*vel as f32 / 127.0));
+                        if t.sink.len() > 1 {
+                            t.sink.skip_one();
+                        }
                     }
                 }
-            }
-            self.trk_idx = (self.trk_idx + 1) % self.len;
+                self.trk_idx = (self.trk_idx + 1) % props.len;
+            })
         }
         self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
         self.tx_state();
@@ -216,39 +308,51 @@ impl Sequencer {
     }
 
     pub fn set_division(&mut self, division: Division) {
-        self.division = division as u8;
+        self.props.set_division(division);
     }
 
     pub fn get_state_rx(&mut self) -> mpsc::Receiver<State> {
         let (tx, rx) = mpsc::channel();
-        self.state_ch.push(tx);
+        self.state_tx_ch.push(tx);
         rx
     }
 
-    fn tx_state(&self) {
-        let trks: Vec<TrackState> = self.tracks.iter().map(|t| {
-            TrackState {
-                slots: t.slots.iter().map(|s| { *s.velocity.lock().unwrap() }).collect(),
-                name: t.name.clone()
-            }
-        }).collect();
-        for tx in &self.state_ch {
-            let _ = tx.send(State {
-                tempo: self.tempo,
-                trk_idx: self.trk_idx,
-                trks: trks.clone(),
-                division: self.division,
-                len: self.len,
-                latency: self.latency
-            });
-        }
+    pub fn get_command_tx(&mut self) -> mpsc::Sender<Command> {
+        self.command_tx_ch.clone()
     }
+
+    fn tx_state(&self) {
+        self.props.with_lock(|props| {
+            let trks: Vec<TrackState> = props.tracks.iter().map(|t| {
+                TrackState {
+                    slots: t.slots.iter().map(|s| { s.velocity }).collect(),
+                    name: t.name.clone()
+                }
+            }).collect();
+            for tx in &self.state_tx_ch {
+                let _ = tx.send(State {
+                    tempo: props.tempo,
+                    trk_idx: self.trk_idx,
+                    trks: trks.clone(),
+                    division: props.division,
+                    len: props.len,
+                    latency: self.latency
+                });
+            }
+        })
+    }
+
+    // pub fn run_command_loop(&self) {
+    //     for cmd in &*self.command_rx_ch {
+    //         print!("{:?}", cmd);
+    //     }
+    // }
 
     fn sleep(&self) {
         spin_sleep::sleep(self.sleep_interval);
     }
 
-    pub fn run_loop(&mut self) {
+    pub fn run_sound_loop(&mut self) {
         loop {
             self.play_next();
             self.sleep();

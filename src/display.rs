@@ -18,8 +18,11 @@ pub struct CLIDisplay {
 
 impl CLIDisplay {
     pub fn new() -> Result<CLIDisplay, Box<dyn Error>> {
+        print!("Create cli displka");
         let mut stdout = io::stdout();
+        print!("got stdout");
         stdout.execute(cursor::Hide)?;
+        print!("did stdout stuff");
         Ok(CLIDisplay {
             stdout
         })

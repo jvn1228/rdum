@@ -3,13 +3,6 @@ use crate::sequencer;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-enum Commands {
-    SetTempo(f32),
-    SetSlotVelocity(u8, u8),
-    SetSequencerLength(usize),
-    PlaySound(u8),
-}
-
 pub struct Controller<T: display::Display> {
     state_rx: mpsc::Receiver<sequencer::State>,
     display: T,

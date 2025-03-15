@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                                                                                               
     // Setup terminal                                                                                                                         
     let mut stdout = io::stdout();                                                                                                            
-    execute!(stdout, EnterAlternateScreen)?;                                                                                                  
+    // execute!(stdout, EnterAlternateScreen)?;                                                                                                  
     terminal::enable_raw_mode()?;                                                                                                             
                                                                                                                                               
     // Event handling                                                                                                                         
@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut seq = sequencer::Sequencer::new(8, stream_handle);
 
     let seq_state_rx = seq.get_state_rx();
+
     let mut ctrl = controller::Controller::new(seq_state_rx, display::CLIDisplay::new()?);
     thread::spawn(move || {
         ctrl.run_loop();
@@ -60,11 +61,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sample_snare = sequencer::BufferedSample::load_from_file(&format!("{pwd}/one_shots/snare0.wav").to_string())?;
     let sample_snare = Arc::new(sample_snare);
     let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);
+    trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);          
 
     thread::spawn(move || {
-        seq.run_loop();
-    });                                                                                                                        
+        seq.run_sound_loop();
+    });                                                                                                            
                                                                                                                                               
     loop {                                                                                                                                    
         if let event::KeyEvent {                                                                                                                 
