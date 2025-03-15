@@ -64,6 +64,8 @@ impl Display for CLIDisplay {
         self.stdout.execute(cursor::MoveToNextLine(1))?;
         print!("Accounting for latency: {:?}", s.latency);
         self.stdout.execute(cursor::MoveToNextLine(1))?;
+        print!("Last cmd: {:?}", s.last_cmd);
+        self.stdout.execute(cursor::MoveToNextLine(1))?;
 
         Ok(())
     }

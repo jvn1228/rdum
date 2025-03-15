@@ -4,10 +4,11 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
+use std::thread::yield_now;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Command {
-    SetTempo(f32),
+    SetTempo(u8),
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
     PlaySound(u8),
@@ -38,7 +39,8 @@ pub struct State {
     pub trks: Vec<TrackState>,
     pub division: u8,
     pub len: usize,
-    pub latency: Duration
+    pub latency: Duration,
+    pub last_cmd: Command
 }
 
 #[derive(Clone)]
@@ -134,7 +136,17 @@ pub struct Props {
     pub tracks: Vec<Track>,
     pub len: usize,
     tempo: u8,
+    pulse_interval: Duration,
     division: u8,
+    command_rx_ch: mpsc::Receiver<Command>,
+    last_cmd: Command
+}
+
+impl Props {
+    fn set_tempo(&mut self, bpm: u8) {
+        self.tempo = bpm;
+        self.pulse_interval = Duration::from_secs_f32(5.0 / 2.0 / bpm as f32);
+    }
 }
 
 #[derive(Clone)]
@@ -159,10 +171,11 @@ impl PropsHandle {
         result
     }
 
-    pub fn set_tempo(&self, t: u8) -> u8 {
+    // we should put these methods on the props struct and just wrap for handler maybe?
+    // so redundant though....
+    pub fn set_tempo(&self, t: u8) {
         self.with_lock(|props| {
-            props.tempo = t;
-            props.tempo
+            props.set_tempo(t)
         })
     }
 
@@ -225,13 +238,11 @@ pub struct Sequencer {
     pub trk_idx: usize,
     // Average of current and last cycle time
     latency: Duration,
-    pulse_interval: Duration,
     sleep_interval: Duration,
     // pulses per beat
     ppb: u8,
     pulse_idx: u8,
     state_tx_ch: Vec<mpsc::Sender<State>>,
-    // command_rx_ch: Arc<mpsc::Receiver<Command>>,
     command_tx_ch: mpsc::Sender<Command>,
 }
 
@@ -244,13 +255,15 @@ impl Sequencer {
                 tracks: vec![],
                 len,
                 tempo: 120,
+                pulse_interval: Duration::from_secs_f32(1.0/12.0),
                 // allowable set{1,2,3,4,6,8,12,16,24,32}
                 division: 8,
+                command_rx_ch: command_rx,
+                last_cmd: Command::PlaySound(1)
             }),
             stream,
             trk_idx: 0,
             latency: Duration::ZERO,
-            pulse_interval: Duration::from_secs_f32(1.0/24.0),
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
             // pulses per bar, 24 per quarter note
             ppb: 24*4,
@@ -304,7 +317,9 @@ impl Sequencer {
 
     fn set_latency(&mut self, t: Duration) {
         self.latency = Duration::from_nanos(((self.latency + t).as_nanos() / 2) as u64);
-        self.sleep_interval = self.pulse_interval - self.pulse_interval.min(self.latency);
+        self.props.with_lock(|props| {
+            self.sleep_interval = props.pulse_interval - props.pulse_interval.min(self.latency)
+        })
     }
 
     pub fn set_division(&mut self, division: Division) {
@@ -336,26 +351,40 @@ impl Sequencer {
                     trks: trks.clone(),
                     division: props.division,
                     len: props.len,
-                    latency: self.latency
+                    latency: self.latency,
+                    last_cmd: props.last_cmd
                 });
             }
         })
     }
 
-    // pub fn run_command_loop(&self) {
-    //     for cmd in &*self.command_rx_ch {
-    //         print!("{:?}", cmd);
-    //     }
-    // }
+    pub fn run_command_loop(props: PropsHandle) {
+        loop {
+            props.with_lock(|props| {
+                if let Ok(cmd) = props.command_rx_ch.try_recv() {
+                    props.last_cmd = cmd;
+                    match cmd {
+                        Command::SetTempo(bpm) => props.set_tempo(bpm),
+                        _ => ()
+                    }
+                } else {
+                    // do nothing
+                }
+            });
+            yield_now();
+        }
+    }
 
     fn sleep(&self) {
         spin_sleep::sleep(self.sleep_interval);
     }
 
-    pub fn run_sound_loop(&mut self) {
+    pub fn run_sound_loop(mut seq: Self) {
         loop {
-            self.play_next();
-            self.sleep();
+            seq.play_next();
+            seq.sleep();
+            yield_now();
         }
     }
+
 }

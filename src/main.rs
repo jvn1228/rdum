@@ -11,6 +11,7 @@ use rodio::OutputStream;
 use std::{io, sync::mpsc, thread, time::Duration};
 use std::sync::Arc;
 use std::thread::yield_now;
+use sequencer::Command;
                                                                                                                                              
 fn main() -> Result<(), Box<dyn std::error::Error>> {      
     let pwd = env!("CARGO_MANIFEST_DIR");       
@@ -63,9 +64,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
     trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);          
 
+    let seq_props_handle = seq.props.clone();
+    let cmd_tx_ch = seq.get_command_tx();
     thread::spawn(move || {
-        seq.run_sound_loop();
-    });                                                                                                            
+        sequencer::Sequencer::run_sound_loop(seq);
+    });
+    thread::spawn(move || {
+        sequencer::Sequencer::run_command_loop(seq_props_handle);
+    });
+
+    thread::spawn(move || {
+        let mut i = 0;
+        let cmds = vec![Command::SetTempo(155), Command::SetTempo(45)];
+        loop {
+            cmd_tx_ch.send(cmds[i]).unwrap();
+            i = (i+1) % 2;
+            thread::sleep(Duration::from_secs(4));
+        }
+    });                                                                                                 
                                                                                                                                               
     loop {                                                                                                                                    
         if let event::KeyEvent {                                                                                                                 
