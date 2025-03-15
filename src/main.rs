@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                                                                                               
     // Setup terminal                                                                                                                         
     let mut stdout = io::stdout();                                                                                                            
-    // execute!(stdout, EnterAlternateScreen)?;                                                                                                  
+    execute!(stdout, EnterAlternateScreen)?;                                                                                                  
     terminal::enable_raw_mode()?;                                                                                                             
                                                                                                                                               
     // Event handling                                                                                                                         
