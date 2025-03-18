@@ -1,5 +1,4 @@
 mod sequencer;
-mod display;
 mod controller;
 
 use crossterm::{                                                                                                                              
@@ -41,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let seq_state_rx = seq.get_state_rx();
 
-    let mut ctrl = controller::Controller::new(seq_state_rx, display::CLIDisplay::new()?);
+    let mut ctrl = controller::CLIController::new(seq_state_rx)?;
     thread::spawn(move || {
         ctrl.run_loop();
     });
