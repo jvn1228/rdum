@@ -12,7 +12,13 @@ pub enum Command {
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
     PlaySound(u8),
+    Waiting
 }
+
+impl Default for Command {
+    fn default() -> Self { Command::Waiting }
+}
+
 pub enum Division {
     W = 1,
     H = 2,
@@ -26,13 +32,13 @@ pub enum Division {
     T = 32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TrackState {
     pub slots: Vec<u8>,
     pub name: String
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct State {
     pub tempo: u8,
     pub trk_idx: usize,

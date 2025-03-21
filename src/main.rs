@@ -1,49 +1,25 @@
 mod sequencer;
 mod controller;
 
-use crossterm::{                                                                                                                              
-    event::{self, Event as CEvent, KeyCode},                                                                                                  
-    execute,                                                                                                                                  
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen}                                                                   
-};                                                                                                                                            
+use ratatui;                                                                                           
 use rodio::OutputStream;                                                                                     
-use std::{io, sync::mpsc, thread, time::Duration};
+use std::{thread, time::Duration};
 use std::sync::Arc;
-use std::thread::yield_now;
+use std::error::Error;
 use sequencer::Command;
                                                                                                                                              
-fn main() -> Result<(), Box<dyn std::error::Error>> {      
+fn main() -> Result<(), Box<dyn Error>> {      
     let pwd = env!("CARGO_MANIFEST_DIR");       
     println!("{}", pwd);                                                                             
     // Set up the audio output                                                                                                                
     let (_stream, stream_handle) = OutputStream::try_default()?;
-    let stream_handle = Arc::new(stream_handle);                                                                                                                                                                                          
-                                                                                                                                              
-    // Setup terminal                                                                                                                         
-    let mut stdout = io::stdout();                                                                                                            
-    execute!(stdout, EnterAlternateScreen)?;                                                                                                  
-    terminal::enable_raw_mode()?;                                                                                                             
-                                                                                                                                              
-    // Event handling                                                                                                                         
-    let (tx, rx) = mpsc::channel();                                                                                                           
-    thread::spawn(move || {                                                                                                                   
-        loop {                                                                                                                                
-            if event::poll(Duration::from_millis(5)).unwrap() {                                                                             
-                if let CEvent::Key(key_event) = event::read().unwrap() {                                                                      
-                    tx.send(key_event).unwrap();                                                                                              
-                }                                                                                                                             
-            }                                                                                                                                 
-        }                                                                                                                                     
-    });      
+    let stream_handle = Arc::new(stream_handle);                                                                                                                                                                                             
 
     let mut seq = sequencer::Sequencer::new(8, stream_handle);
 
     let seq_state_rx = seq.get_state_rx();
 
-    let mut ctrl = controller::CLIController::new(seq_state_rx)?;
-    thread::spawn(move || {
-        ctrl.run_loop();
-    });
+    let mut ctrl = controller::CLIController::new(seq_state_rx);
 
     seq.set_tempo(160);
     seq.set_division(sequencer::Division::S);
@@ -81,20 +57,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             thread::sleep(Duration::from_secs(4));
         }
     });                                                                                                 
-                                                                                                                                              
-    loop {                                                                                                                                    
-        if let event::KeyEvent {                                                                                                                 
-                code: KeyCode::Esc,                                                                                                           
-                ..                                                                                                                         
-            } = rx.recv()? {                                                                                                                            
-            
-            break;
-        }
-        yield_now();                                                                                                                 
-    }                                                                                                                              
-                                                                                                                                              
-    // Cleanup                                                                                                                                
-    terminal::disable_raw_mode()?;                                                                                                            
-    execute!(stdout, LeaveAlternateScreen)?;                                                                                                  
-    Ok(())                                                                                                                                    
+                                                                                                                           
+    let mut terminal = ratatui::init();
+    let app_result = ctrl.run(&mut terminal);
+    ratatui::restore();
+    app_result?;
+    Ok(())
 } 
