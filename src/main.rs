@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut ctrl = controller::CLIController::new(seq_state_rx);
 
-    seq.set_tempo(160);
-    seq.set_division(sequencer::Division::S);
+    // seq.set_tempo(90);
+    seq.set_division(sequencer::Division::E);
 
     let sample_hat = new_buffered_sample("one_shots/hat0.wav")?;
     let trk_hat = seq.add_track("Hat".to_string(), Arc::clone(&sample_hat))?;
@@ -36,14 +36,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let sample_kick = new_buffered_sample("one_shots/kick0.wav")?;
     let trk_kick = seq.add_track("Kick".to_string(), Arc::clone(&sample_kick))?;
-    trk_kick.set_slots_vel(&[127, 0, 56, 127, 0, 127, 0, 75]);
+    trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75]);
 
     let sample_snare = new_buffered_sample("one_shots/snare0.wav")?;
     let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 0, 127, 0, 47, 0, 127]);          
+    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);          
 
     let seq_props_handle = seq.props.clone();
     let cmd_tx_ch = seq.get_command_tx();
+
     thread::spawn(move || {
         sequencer::Sequencer::run_sound_loop(seq);
     });
@@ -54,12 +55,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     thread::spawn(move || {
         let mut i = 0;
         let cmds = vec![Command::SetTempo(155), Command::SetTempo(45)];
+        thread::sleep(Duration::from_secs(1));
         loop {
             cmd_tx_ch.send(cmds[i]).unwrap();
             i = (i+1) % 2;
-            thread::sleep(Duration::from_secs(4));
+            thread::sleep(Duration::from_secs(3));
         }
-    });                                                                                                 
+    });                                                                                                
                                                                                                                            
     let mut terminal = ratatui::init();
     let app_result = ctrl.run(&mut terminal);

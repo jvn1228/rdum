@@ -141,8 +141,14 @@ impl Track {
 pub struct Props {
     pub tracks: Vec<Track>,
     pub len: usize,
+    // beats per minutes
     tempo: u8,
+    // calculated based on tempo,  the length of one pulse of the sequencer
+    // note: this is not the same as a beat and has to be a higher frequency
+    // to handle things like swing
     pulse_interval: Duration,
+    // defines the note length of a beat
+    // allowable set{1,2,3,4,6,8,12,16,24,32}
     division: u8,
     command_rx_ch: mpsc::Receiver<Command>,
     last_cmd: Command
@@ -155,6 +161,10 @@ impl Props {
     }
 }
 
+// Borrowing/ownership and race conditions present some challenges in multithreaded apps,
+// the solution of prop handlers is used here to solve them
+// The wrapper will take care of mutex locks and allows many threads to safely access the struct
+// without violating ownership principles (An Arc smart pointer is used)
 #[derive(Clone)]
 pub struct PropsHandle {
     inner: Arc<Mutex<Props>>
@@ -197,6 +207,12 @@ impl PropsHandle {
     }
 }
 
+// This is a little clunky but because sequencer Props are
+// defined as the user-modifiable properties, which includes tracks,
+// we have to use the PropsHandle wrapper to access the tracks
+// TrackHandle serves as a specialized PropsHandle that is just
+// for modifying tracks. But, clunkily, it's a wrapper of a wrapper
+// One day maybe aspiring rappers will appreciate this wrapper wrapper.
 pub struct TrackHandle {
     inner: PropsHandle,
     trk: u8
@@ -239,16 +255,24 @@ impl TrackHandle {
 }
 
 pub struct Sequencer {
+    // properties that can be modified
     pub props: PropsHandle,
     pub stream: Arc<OutputStreamHandle>,
     pub trk_idx: usize,
     // Average of current and last cycle time
     latency: Duration,
+    // the actual sleep time, which may differ from pulse interval
+    // if, for example, processing latency is high
     sleep_interval: Duration,
-    // pulses per beat
+    // pulses per bar, always gonna be 24*4 for midi clock purposes
     ppb: u8,
     pulse_idx: u8,
+    // Unfortunately the current standard Rust channel only
+    // allows for a single consumer, so we can't broadcast state
+    // updates to many listeners except via multiple channels
     state_tx_ch: Vec<mpsc::Sender<State>>,
+    // But multi producer single consumer means we can
+    // have multiple controllers (producers) on the sequencer (consumer) at once
     command_tx_ch: mpsc::Sender<Command>,
 }
 
@@ -261,21 +285,21 @@ impl Sequencer {
                 tracks: vec![],
                 len,
                 tempo: 120,
-                pulse_interval: Duration::from_secs_f32(1.0/12.0),
-                // allowable set{1,2,3,4,6,8,12,16,24,32}
-                division: 8,
+                // corresponds to 120 bpm
+                pulse_interval: Duration::from_secs_f32(2.5/120.0),
+                division: 4,
                 command_rx_ch: command_rx,
-                last_cmd: Command::PlaySound(1)
+                last_cmd: Command::Waiting
             }),
             stream,
             trk_idx: 0,
             latency: Duration::ZERO,
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
             // pulses per bar, 24 per quarter note
+            // afaik this is the rate to send midi clock signals
             ppb: 24*4,
             pulse_idx: 0,
             state_tx_ch: vec![],
-            // command_rx_ch: Arc::new(command_rx),
             command_tx_ch: command_tx
         }
     }
