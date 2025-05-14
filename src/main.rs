@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut seq = sequencer::Sequencer::new(8, stream_handle);
 
     let seq_state_rx = seq.get_state_rx();
-
-    let mut ctrl = controller::CLIController::new(seq_state_rx);
+    let seq_cmd_tx = seq.get_command_tx();
+    let mut ctrl = controller::CLIController::new(seq_state_rx, seq_cmd_tx);
 
     // seq.set_tempo(90);
     seq.set_division(sequencer::Division::E);
@@ -52,16 +52,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         sequencer::Sequencer::run_command_loop(seq_props_handle);
     });
 
-    thread::spawn(move || {
-        let mut i = 0;
-        let cmds = vec![Command::SetTempo(155), Command::SetTempo(45)];
-        thread::sleep(Duration::from_secs(1));
-        loop {
-            cmd_tx_ch.send(cmds[i]).unwrap();
-            i = (i+1) % 2;
-            thread::sleep(Duration::from_secs(3));
-        }
-    });                                                                                                
+    // thread::spawn(move || {
+    //     let mut i = 0;
+    //     let cmds = vec![Command::SetTempo(155), Command::SetTempo(45)];
+    //     thread::sleep(Duration::from_secs(1));
+    //     loop {
+    //         cmd_tx_ch.send(cmds[i]).unwrap();
+    //         i = (i+1) % 2;
+    //         thread::sleep(Duration::from_secs(3));
+    //     }
+    // });                                                                                                
                                                                                                                            
     let mut terminal = ratatui::init();
     let app_result = ctrl.run(&mut terminal);

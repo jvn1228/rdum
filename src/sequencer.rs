@@ -11,8 +11,10 @@ pub enum Command {
     SetTempo(u8),
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
-    PlaySound(u8),
-    Waiting
+    PlaySound(usize, u8),
+    Waiting,
+    PlaySequencer,
+    StopSequencer,
 }
 
 impl Default for Command {
@@ -39,6 +41,9 @@ pub struct TrackState {
 }
 
 #[derive(Debug, Default)]
+/// Subset of sequencer state that be broadcast on a channel
+/// 
+/// Refer to the Props struct to see more descriptors
 pub struct State {
     pub tempo: u8,
     pub trk_idx: usize,
@@ -46,10 +51,13 @@ pub struct State {
     pub division: u8,
     pub len: usize,
     pub latency: Duration,
-    pub last_cmd: Command
+    pub last_cmd: Command,
+    pub playing: bool,
 }
 
 #[derive(Clone)]
+/// BufferedSample is a custom Rodio source that holds
+/// the decoded sample data in memory. So it's much faster
 pub struct BufferedSample {
     sample_rate: u32,
     channels: u16,
@@ -114,6 +122,10 @@ pub struct Slot {
     pub velocity: u8,
 }
 
+/// `Track` contains data that allows the sequencer to play a sample 
+/// 
+/// It has a vector of velocities that determine when a sample is triggered, an audio sink to queue it,
+/// and a reference to the sample itself
 pub struct Track {
     pub slots: Vec<Slot>,
     pub sample: Arc<BufferedSample>,
@@ -138,18 +150,26 @@ impl Track {
     }
 }
 
+/// Struct that describes internal sequencer state that can be
+/// modified by the user
 pub struct Props {
     pub tracks: Vec<Track>,
+    /// The length of the sequencer playback, discretized to beats
+    /// 
+    /// All tracks are the same length at the moment
     pub len: usize,
-    // beats per minutes
+    /// beats per minutes
     tempo: u8,
-    // calculated based on tempo,  the length of one pulse of the sequencer
-    // note: this is not the same as a beat and has to be a higher frequency
-    // to handle things like swing
+    /// calculated based on tempo, the length of one pulse of the sequencer
+    /// 
+    /// note: this is not the same as a beat and has to be a higher frequency
+    /// to handle things like swing
     pulse_interval: Duration,
-    // defines the note length of a beat
-    // allowable set{1,2,3,4,6,8,12,16,24,32}
+    /// defines the note length of a beat
+    /// 
+    /// allowable set{1,2,3,4,6,8,12,16,24,32}
     division: u8,
+    playing: bool,
     command_rx_ch: mpsc::Receiver<Command>,
     last_cmd: Command
 }
@@ -159,12 +179,23 @@ impl Props {
         self.tempo = bpm;
         self.pulse_interval = Duration::from_secs_f32(5.0 / 2.0 / bpm as f32);
     }
+
+    pub fn enable_play(&mut self) {
+        self.playing = true;
+    }
+
+    pub fn disable_play(&mut self) {
+        self.playing = false;
+    }
 }
 
-// Borrowing/ownership and race conditions present some challenges in multithreaded apps,
-// the solution of prop handlers is used here to solve them
-// The wrapper will take care of mutex locks and allows many threads to safely access the struct
-// without violating ownership principles (An Arc smart pointer is used)
+/// Struct wrapping sequencer Props allowing us to modify them
+/// without taking ownership of them
+/// 
+///  Borrowing/ownership and race conditions present some challenges in multithreaded apps,
+/// the solution of prop handlers is used here to solve them
+/// The wrapper will take care of mutex locks and allows many threads to safely access the struct
+/// without violating ownership principles (An Arc smart pointer is used)
 #[derive(Clone)]
 pub struct PropsHandle {
     inner: Arc<Mutex<Props>>
@@ -207,12 +238,14 @@ impl PropsHandle {
     }
 }
 
-// This is a little clunky but because sequencer Props are
-// defined as the user-modifiable properties, which includes tracks,
-// we have to use the PropsHandle wrapper to access the tracks
-// TrackHandle serves as a specialized PropsHandle that is just
-// for modifying tracks. But, clunkily, it's a wrapper of a wrapper
-// One day maybe aspiring rappers will appreciate this wrapper wrapper.
+/// Struct that wraps PropsHandle for a specific track
+/// 
+///  This is a little clunky but because sequencer Props are
+/// defined as the user-modifiable properties, which includes tracks,
+/// we have to use the PropsHandle wrapper to access the tracks
+/// TrackHandle serves as a specialized PropsHandle that is just
+/// for modifying tracks. But, clunkily, it's a wrapper of a wrapper
+/// One day maybe aspiring rappers will appreciate this wrapper wrapper.
 pub struct TrackHandle {
     inner: PropsHandle,
     trk: u8
@@ -254,30 +287,45 @@ impl TrackHandle {
     }
 }
 
+/// `Sequencer` is the main sound engine
+/// 
+/// The hierarchy looks like this: Sequencer -> Track -> Sample
+/// When playing, the sequencer keeps track of the current playhead position,
+/// triggering samples loaded into the individual tracks based on the
+/// track's vector of sample velocities
+/// It runs at a higher refresh rate (pulse) than the beat since it can
+/// also send midi clock signals and handle swung notes
+/// The sequencer can be controlled by creating a command channel and
+/// controllers/displays can receive state on a state broadcast channel
 pub struct Sequencer {
-    // properties that can be modified
+    /// Properties that can be modified
     pub props: PropsHandle,
     pub stream: Arc<OutputStreamHandle>,
     pub trk_idx: usize,
-    // Average of current and last cycle time
+    /// Average of current and last cycle time
     latency: Duration,
-    // the actual sleep time, which may differ from pulse interval
-    // if, for example, processing latency is high
+    /// the actual sleep time, which may differ from pulse interval
+    /// if, for example, processing latency is high
     sleep_interval: Duration,
     // pulses per bar, always gonna be 24*4 for midi clock purposes
     ppb: u8,
     pulse_idx: u8,
-    // Unfortunately the current standard Rust channel only
-    // allows for a single consumer, so we can't broadcast state
-    // updates to many listeners except via multiple channels
+    /// State transmission channel
+    /// 
+    /// Unfortunately the current standard Rust channel only
+    /// allows for a single consumer, so we can't broadcast state
+    /// updates to many listeners except via multiple channels
     state_tx_ch: Vec<mpsc::Sender<State>>,
-    // But multi producer single consumer means we can
-    // have multiple controllers (producers) on the sequencer (consumer) at once
+    /// Command receiver channel
+    /// 
+    /// Multi producer single consumer means we can
+    /// have multiple controllers (producers) on the sequencer (consumer) at once
     command_tx_ch: mpsc::Sender<Command>,
 }
 
 // Maybe tracks should have independent lengths?
 impl Sequencer {
+    /// Creates a new sequencer instance
     pub fn new(len: usize, stream: Arc<OutputStreamHandle>) -> Sequencer {
         let (command_tx, command_rx) = mpsc::channel();
         Sequencer {
@@ -288,6 +336,7 @@ impl Sequencer {
                 // corresponds to 120 bpm
                 pulse_interval: Duration::from_secs_f32(2.5/120.0),
                 division: 4,
+                playing: false,
                 command_rx_ch: command_rx,
                 last_cmd: Command::Waiting
             }),
@@ -304,12 +353,15 @@ impl Sequencer {
         }
     }
 
+    /// Sets tempo via props handle
     pub fn set_tempo(&mut self, bpm: u8) {
         self.props.set_tempo(bpm);
     }
 
-    // Because trks are wrapped in a property handler to ensure thread safety, we can't directly return access
-    // to the track. Instead the index of the created track is returned for reference
+    /// Adds an empty track to the sequencer
+    /// 
+    /// Because trks are wrapped in a property handler to ensure thread safety, we can't directly return access
+    /// to the track. Instead the index of the created track is returned for reference
     pub fn add_track(&mut self, name: String, sample: Arc<BufferedSample>) -> Result<TrackHandle, Box<dyn Error>> {
         let sink = Sink::try_new(&self.stream)?;
         let sink = Arc::new(sink);
@@ -320,31 +372,50 @@ impl Sequencer {
         })
     }
 
-    fn play_next(&mut self) {
-        let start = Instant::now();
-        // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
-        // and then in fact we might have to move that tracking to the track
-        if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
-            self.props.with_lock(|props| {
-                for t in &mut props.tracks {
-                    let vel = &mut t.slots[self.trk_idx].velocity;
-                    if *vel > 0 {
-                        t.sink.append((*t.sample).clone().amplify(*vel as f32 / 127.0));
-                        if t.sink.len() > 1 {
-                            t.sink.skip_one();
-                        }
-                    }
-                }
-                self.trk_idx = (self.trk_idx + 1) % props.len;
-            })
+    /// Helper function that plays a sample on the playback stream sink
+    /// 
+    /// We circumvent the rodio sink queueing, only instant plays! It's a little clunky perhaps to repeatedly clone
+    /// the Arc pointer but optimization is a later thing
+    fn append_sample_to_sink(snk: Arc<Sink>, samp: Arc<BufferedSample>, vel: &mut u8) {
+        snk.append((*samp).clone().amplify(*vel as f32 / 127.0));
+        if snk.len() > 1 {
+            snk.skip_one();
         }
-        self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
-        self.tx_state();
-        
-        // to do send midi clk msg
-        self.set_latency(Instant::now().duration_since(start));
     }
 
+    /// The VIP function. Plays tracks, sends state, updates latency
+    fn play_next(&mut self) {
+        let playing = self.props.with_lock(|props| { props.playing });
+        if playing {
+            let start = Instant::now();
+            // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
+            // and then in fact we might have to move that tracking to the track
+            if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
+                self.props.with_lock(|props| {
+                    for t in &mut props.tracks {
+                        let vel = &mut t.slots[self.trk_idx].velocity;
+                        if *vel > 0 {
+                            Sequencer::append_sample_to_sink(t.sink.clone(), t.sample.clone(), vel);
+                        }
+                    }
+                    self.trk_idx = (self.trk_idx + 1) % props.len;
+                })
+            }
+            self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
+            
+            // to do send midi clk msg
+            self.set_latency(Instant::now().duration_since(start));
+        // props cannot modify the sequencer idx since I would like that to run without maybe being locked
+        // so it's reset to 0 here since playing the loop from the beginning is probably more useful
+        } else if self.pulse_idx != 0 {
+            self.pulse_idx = 0;
+            self.trk_idx = 0;
+        }
+
+        self.tx_state();
+    }
+
+    /// Attempts to keep timing tight by subtracting processing time from overall wait between beats
     fn set_latency(&mut self, t: Duration) {
         self.latency = Duration::from_nanos(((self.latency + t).as_nanos() / 2) as u64);
         self.props.with_lock(|props| {
@@ -352,20 +423,27 @@ impl Sequencer {
         })
     }
 
+    /// Uses props handle to set time division (4/4 time is quarter division, 4/8 is eighth, etc)
     pub fn set_division(&mut self, division: Division) {
         self.props.set_division(division);
     }
 
+    /// Creates a new channel to send state updates to
     pub fn get_state_rx(&mut self) -> mpsc::Receiver<State> {
         let (tx, rx) = mpsc::channel();
         self.state_tx_ch.push(tx);
         rx
     }
 
+    /// Creates a command tx channel to receive commands
+    /// 
+    /// If multiple controllers are used, no attempt is made to counteract
+    /// race conditions between them, sequencer only receive commands one at a time
     pub fn get_command_tx(&mut self) -> mpsc::Sender<Command> {
         self.command_tx_ch.clone()
     }
 
+    /// Transmits a subset of internal sequencer state
     fn tx_state(&self) {
         self.props.with_lock(|props| {
             let trks: Vec<TrackState> = props.tracks.iter().map(|t| {
@@ -382,12 +460,21 @@ impl Sequencer {
                     division: props.division,
                     len: props.len,
                     latency: self.latency,
-                    last_cmd: props.last_cmd
+                    last_cmd: props.last_cmd,
+                    playing: props.playing
                 });
             }
         })
     }
 
+    /// Receives commands and modifies sequencer state accordingly
+    /// 
+    /// You can run this in its own thread. It does not own the sequencer
+    /// instance hence we use a props handle to modify the sequencer state
+    /// There's a slight weirdness with this paradigm in that one shot
+    /// sample playing will directly add to the track playback sink, instead
+    /// of modifying a property. Maybe tracks are not fully definable as properties
+    /// but we gain functionality treating them as such
     pub fn run_command_loop(props: PropsHandle) {
         loop {
             props.with_lock(|props| {
@@ -395,6 +482,14 @@ impl Sequencer {
                     props.last_cmd = cmd;
                     match cmd {
                         Command::SetTempo(bpm) => props.set_tempo(bpm),
+                        Command::PlaySound(trk, vel) => (|trk, vel| {
+                                let trk: &mut Track = &mut props.tracks[trk];
+                                let mut vel = vel;
+                                let v = &mut vel;
+                                Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
+                            })(trk, vel),
+                        Command::PlaySequencer => props.enable_play(),
+                        Command::StopSequencer => props.disable_play(),
                         _ => ()
                     }
                 } else {
@@ -405,10 +500,12 @@ impl Sequencer {
         }
     }
 
+    /// Sleep between pulses
     fn sleep(&self) {
         spin_sleep::sleep(self.sleep_interval);
     }
 
+    /// Runs the sequencer
     pub fn run_sound_loop(mut seq: Self) {
         loop {
             seq.play_next();

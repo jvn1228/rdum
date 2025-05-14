@@ -1,4 +1,4 @@
-use crate::sequencer;
+use crate::sequencer::{self, Sequencer};
 use std::sync::mpsc;
 use std::time::{Instant, Duration};
 
@@ -19,6 +19,7 @@ use ratatui::{
 #[derive(Debug)]
 pub struct CLIController {
     state_rx: mpsc::Receiver<sequencer::State>,
+    cmd_tx: mpsc::Sender<sequencer::Command>,
     exit: bool,
     refresh_interval: Duration,
     last_refresh: Instant,
@@ -26,9 +27,10 @@ pub struct CLIController {
 }
 
 impl CLIController {
-    pub fn new(rx: mpsc::Receiver<sequencer::State>) -> Self {
+    pub fn new(rx: mpsc::Receiver<sequencer::State>, tx: mpsc::Sender<sequencer::Command>) -> Self {
         CLIController {
             state_rx: rx,
+            cmd_tx: tx,
             exit: false,
             refresh_interval: Duration::from_secs_f32(1.0/12.0),
             last_refresh: Instant::now(),
@@ -60,9 +62,18 @@ impl CLIController {
         frame.render_widget(self, frame.area());
     }
 
+    fn send_play_sample_cmd(&self, c: char) {
+        let c = c.to_digit(10).unwrap_or(0) as usize;
+        if c < self.last_state.trks.len() {
+            self.cmd_tx.send(sequencer::Command::PlaySound(c, 127)).expect("Bad play command")
+        }
+    }
+
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
+            KeyCode::Char(c) if c.is_digit(10) => self.send_play_sample_cmd(c),
+            KeyCode::Char('p') => self.cmd_tx.send(if self.last_state.playing { sequencer::Command::StopSequencer } else { sequencer::Command::PlaySequencer }).expect("Bad stuff"),
             _ => {}
         }
     }
@@ -76,7 +87,7 @@ impl CLIController {
                     // crossterm also emits key release and repeat events on Windows.
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                         self.handle_key_event(key_event)
-                    }
+                    },
                     _ => {}
                 };
             }
