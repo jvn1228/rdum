@@ -7,6 +7,7 @@ use std::{thread, time::Duration};
 use std::sync::Arc;
 use std::error::Error;
 use sequencer::Command;
+use controller::cli::CLIController;
 
 fn new_buffered_sample(fp: &str) -> Result<Arc<sequencer::BufferedSample>, Box<dyn Error>> {
     let pwd = env!("CARGO_MANIFEST_DIR");  
@@ -22,10 +23,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let stream_handle = Arc::new(stream_handle);                                                                                                                                                                                             
 
     let mut seq = sequencer::Sequencer::new(8, stream_handle);
+    seq.play();
 
     let seq_state_rx = seq.get_state_rx();
     let seq_cmd_tx = seq.get_command_tx();
-    let mut ctrl = controller::CLIController::new(seq_state_rx, seq_cmd_tx);
+    let mut ctrl = CLIController::new(seq_state_rx, seq_cmd_tx);
 
     // seq.set_tempo(90);
     seq.set_division(sequencer::Division::E);

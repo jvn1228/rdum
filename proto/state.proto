@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package rdum;
+
+import "google/protobuf/duration.proto";
+
+// Protocol buffers schema generated from sequencer::State struct
+message State {
+  uint32 tempo = 1;
+  uint64 trk_idx = 2;
+  repeated TrackState trks = 3;
+  uint32 division = 4;
+  uint64 len = 5;
+  google.protobuf.Duration latency = 6;
+  bool playing = 7;
+}
+
+// TrackState represents a single track in the sequencer
+message TrackState {
+  repeated uint32 slots = 1;
+  string name = 2;
+}
+
+// Command enum represents the possible commands that can be sent to the sequencer
+enum Command {
+  COMMAND_UNSPECIFIED = 0;
+  COMMAND_PLAY = 1;
+  COMMAND_STOP = 2;
+  COMMAND_RESET = 3;
+  COMMAND_SET_TEMPO = 4;
+  COMMAND_SET_DIVISION = 5;
+  COMMAND_SET_TRACK = 6;
+  COMMAND_TOGGLE_SLOT = 7;
+  COMMAND_CLEAR_TRACK = 8;
+  COMMAND_ADD_TRACK = 9;
+  COMMAND_DELETE_TRACK = 10;
+  COMMAND_RENAME_TRACK = 11;
+}
+
+// CommandMessage contains both the command type and any associated arguments
+message CommandMessage {
+  Command command_type = 1;
+  
+  // Optional fields for command arguments
+  oneof args {
+    // For COMMAND_SET_TEMPO
+    uint32 tempo = 2;
+    
+    // For COMMAND_SET_DIVISION
+    uint32 division = 3;
+    
+    // For COMMAND_SET_TRACK
+    uint64 track_index = 4;
+    
+    // For COMMAND_TOGGLE_SLOT
+    ToggleSlotArgs toggle_slot = 5;
+    
+    // For COMMAND_ADD_TRACK
+    string new_track_name = 6;
+    
+    // For COMMAND_DELETE_TRACK
+    uint64 delete_track_index = 7;
+    
+    // For COMMAND_RENAME_TRACK
+    RenameTrackArgs rename_track = 8;
+  }
+}
+
+// Arguments for toggle slot command
+message ToggleSlotArgs {
+  uint64 slot_index = 1;
+}
+
+// Arguments for rename track command
+message RenameTrackArgs {
+  uint64 track_index = 1;
+  string new_name = 2;
+}

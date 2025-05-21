@@ -3,8 +3,19 @@ name = "rdum"
 version = "0.1.0"
 edition = "2021"
 
+# Enable build script for protobuf compilation
+build = "build.rs"
+
 [dependencies]
 rodio = { version = "0.20.1", features = ["symphonia-wav"] }
 crossterm = "0.28.1"
 spin_sleep = "1.3.0"
 ratatui = "0.29.0"
+# Protocol Buffers dependencies
+prost = "0.13.5"
+prost-types = "0.13.5"
+# ZeroMQ dependency
+zmq = "0.10.0"
+
+[build-dependencies]
+prost-build = "0.13.5"

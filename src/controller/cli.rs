@@ -1,4 +1,4 @@
-use crate::sequencer::{self, Sequencer};
+use crate::sequencer;
 use std::sync::mpsc;
 use std::time::{Instant, Duration};
 

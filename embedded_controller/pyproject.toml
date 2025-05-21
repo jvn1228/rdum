@@ -1,0 +1,12 @@
+[project]
+name = "rdum-embedded-controller"
+version = "0.1.0"
+description = "Embedded controller for the RDUM drum machine (CircuitPython libs on Raspberry Pi 5)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gpiozero>=2.0.1",
+    "adafruit-blinka>=8.58.1",
+    "adafruit-circuitpython-ssd1306>=2.12.20",
+    "gpiod>=2.3.0",
+]

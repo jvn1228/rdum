@@ -236,6 +236,18 @@ impl PropsHandle {
             props.division
         })
     }
+
+    pub fn enable_play(&mut self) {
+        self.with_lock(|props| {
+            props.enable_play();
+        })
+    }
+
+    pub fn disable_play(&mut self) {
+        self.with_lock(|props| {
+            props.disable_play();
+        })
+    }
 }
 
 /// Struct that wraps PropsHandle for a specific track
@@ -356,6 +368,14 @@ impl Sequencer {
     /// Sets tempo via props handle
     pub fn set_tempo(&mut self, bpm: u8) {
         self.props.set_tempo(bpm);
+    }
+
+    pub fn play(&mut self) {
+        self.props.enable_play();
+    }
+
+    pub fn stop(&mut self) {
+        self.props.disable_play();
     }
 
     /// Adds an empty track to the sequencer
