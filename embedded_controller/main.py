@@ -1,15 +1,3 @@
-# SPDX-FileCopyrightText: 2021 ladyada for Adafruit Industries
-# SPDX-License-Identifier: MIT
-
-"""
-This demo will fill the screen with white, draw a black box on top
-and then print Hello World! in the center of the display
-
-This example is for use on (Linux) computers that are using CPython with
-Adafruit Blinka to support CircuitPython libraries. CircuitPython does
-not support PIL/pillow (python imaging library)!
-"""
-
 from dataclasses import dataclass, field
 import board
 import digitalio
