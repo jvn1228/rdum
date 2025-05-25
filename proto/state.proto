@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package rdum;
+package rdum.state;
 
 import "google/protobuf/duration.proto";
 
@@ -24,17 +24,16 @@ message TrackState {
 // Command enum represents the possible commands that can be sent to the sequencer
 enum Command {
   COMMAND_UNSPECIFIED = 0;
-  COMMAND_PLAY = 1;
-  COMMAND_STOP = 2;
-  COMMAND_RESET = 3;
-  COMMAND_SET_TEMPO = 4;
-  COMMAND_SET_DIVISION = 5;
-  COMMAND_SET_TRACK = 6;
-  COMMAND_TOGGLE_SLOT = 7;
-  COMMAND_CLEAR_TRACK = 8;
-  COMMAND_ADD_TRACK = 9;
-  COMMAND_DELETE_TRACK = 10;
-  COMMAND_RENAME_TRACK = 11;
+  COMMAND_PLAY_SEQUENCER = 1;
+  COMMAND_STOP_SEQUENCER = 2;
+  COMMAND_SET_TEMPO = 3;
+  COMMAND_SET_DIVISION = 4;
+  COMMAND_SET_TRACK = 5;
+  COMMAND_TOGGLE_SLOT = 6;
+  COMMAND_CLEAR_TRACK = 7;
+  COMMAND_ADD_TRACK = 8;
+  COMMAND_DELETE_TRACK = 9;
+  COMMAND_RENAME_TRACK = 10;
 }
 
 // CommandMessage contains both the command type and any associated arguments

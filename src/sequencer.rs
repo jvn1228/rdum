@@ -6,12 +6,13 @@ use std::fs::File;
 use std::time::Instant;
 use std::thread::yield_now;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum Command {
     SetTempo(u8),
     SetSlotVelocity(u8, u8),
     SetSequencerLength(usize),
     PlaySound(usize, u8),
+    SetDivision(Division),
     Waiting,
     PlaySequencer,
     StopSequencer,
@@ -21,6 +22,7 @@ impl Default for Command {
     fn default() -> Self { Command::Waiting }
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum Division {
     W = 1,
     H = 2,
@@ -34,13 +36,13 @@ pub enum Division {
     T = 32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct TrackState {
     pub slots: Vec<u8>,
     pub name: String
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 /// Subset of sequencer state that be broadcast on a channel
 /// 
 /// Refer to the Props struct to see more descriptors

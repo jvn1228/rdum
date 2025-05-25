@@ -5,6 +5,7 @@ import '@material/web/button/outlined-button.js';
 import '@material/web/icon/icon.js';
 import '@material/web/slider/slider.js';
 
+
 @customElement('transport-controls')
 export class TransportControls extends LitElement {
   @property({ type: Boolean }) isPlaying = false;
@@ -53,6 +54,17 @@ export class TransportControls extends LitElement {
     mwc-slider {
       flex: 1;
     }
+
+    md-filled-button {
+      min-width: 100px;
+    }
+    
+    md-icon {
+      font-size: 24px;
+      margin-right: 8px;
+      display: inline-flex;
+      vertical-align: middle;
+    }
   `;
 
   render() {
@@ -65,16 +77,16 @@ export class TransportControls extends LitElement {
             ?disabled=${this.isPlaying}
             @click=${this._handlePlay}
           >
-            <span class="material-icons" slot="icon">play_arrow</span>
-            Play
+            <md-icon slot="icon">play_arrow</md-icon>
+            <span>Play</span>
           </md-filled-button>
           
           <md-filled-button 
             ?disabled=${!this.isPlaying}
             @click=${this._handleStop}
           >
-            <span class="material-icons" slot="icon">stop</span>
-            Stop
+            <md-icon slot="icon">stop</md-icon>
+            <span>Stop</span>
           </md-filled-button>
         </div>
         

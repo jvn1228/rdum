@@ -3,7 +3,7 @@ import { customElement, property } from 'lit/decorators.js';
 
 @customElement('drum-pad')
 export class DrumPad extends LitElement {
-  @property({ type: Boolean, reflect: true }) active = false;
+  @property({ type: Number, reflect: true }) vel = 0;
   @property({ type: Boolean, reflect: true }) trigger = false;
 
   static styles = css`
@@ -34,7 +34,7 @@ export class DrumPad extends LitElement {
   render() {
     const classes = {
       pad: true,
-      active: this.active,
+      active: this.vel > 0,
       trigger: this.trigger
     };
     
@@ -45,14 +45,14 @@ export class DrumPad extends LitElement {
           .map(([key]) => key)
           .join(' ')}
         @click=${this._handleClick}
-      ></button>
+      >${this.vel}</button>
     `;
   }
 
   _handleClick() {
-    this.active = !this.active;
+    this.vel = this.vel === 0 ? 127 : 0;
     this.dispatchEvent(new CustomEvent('pad-toggled', {
-      detail: { value: this.active },
+      detail: { value: this.vel },
       bubbles: true,
       composed: true
     }));

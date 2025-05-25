@@ -3,11 +3,12 @@ mod controller;
 
 use ratatui;                                                                                           
 use rodio::OutputStream;                                                                                     
-use std::{thread, time::Duration};
+use std::{thread, time::Duration, io};
 use std::sync::Arc;
 use std::error::Error;
 use sequencer::Command;
 use controller::cli::CLIController;
+use crossterm::{event::{self, Event, KeyCode}, terminal};
 
 fn new_buffered_sample(fp: &str) -> Result<Arc<sequencer::BufferedSample>, Box<dyn Error>> {
     let pwd = env!("CARGO_MANIFEST_DIR");  
@@ -45,29 +46,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);          
 
     let seq_props_handle = seq.props.clone();
-    let cmd_tx_ch = seq.get_command_tx();
+
+    let mut web_ctrl = controller::web::WebController::new(seq.get_command_tx(), seq.get_state_rx());
+    thread::spawn(move || {
+        web_ctrl.run();
+    }); 
 
     thread::spawn(move || {
         sequencer::Sequencer::run_sound_loop(seq);
     });
     thread::spawn(move || {
         sequencer::Sequencer::run_command_loop(seq_props_handle);
-    });
-
-    // thread::spawn(move || {
-    //     let mut i = 0;
-    //     let cmds = vec![Command::SetTempo(155), Command::SetTempo(45)];
-    //     thread::sleep(Duration::from_secs(1));
-    //     loop {
-    //         cmd_tx_ch.send(cmds[i]).unwrap();
-    //         i = (i+1) % 2;
-    //         thread::sleep(Duration::from_secs(3));
-    //     }
-    // });                                                                                                
+    });                                                                                            
                                                                                                                            
-    let mut terminal = ratatui::init();
-    let app_result = ctrl.run(&mut terminal);
-    ratatui::restore();
-    app_result?;
+    // let mut terminal = ratatui::init();
+    // let app_result = ctrl.run(&mut terminal);
+    // ratatui::restore();
+    // app_result?;
+    // Configure terminal for non-blocking input
+    terminal::enable_raw_mode().expect("Failed to enable raw mode");
+    
+    println!("Running (press 'q' to exit)...");
+    
+    // Main loop with key detection
+    loop {
+        // Check for keypress events without blocking
+        if event::poll(Duration::from_millis(10)).unwrap() {
+            if let Event::Key(key_event) = event::read().unwrap() {
+                if key_event.code == KeyCode::Char('q') {
+                    println!("\nReceived 'q' key press. Shutting down...");
+                    break;
+                }
+            }
+        }
+        
+        thread::yield_now();
+    }
+    
+    // Clean up terminal settings
+    terminal::disable_raw_mode().expect("Failed to disable raw mode");
+    println!("Gracefully shutting down.");
+
     Ok(())
 } 

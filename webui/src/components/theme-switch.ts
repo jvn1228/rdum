@@ -63,7 +63,7 @@ export class ThemeSwitch extends LitElement {
     return html`
       <div class="theme-toggle tooltip">
         <md-filled-icon-button class="icon-button" @click=${this._toggleTheme}>
-          <span class="material-icons">${this._getThemeIcon()}</span>
+          <md-icon>${this._getThemeIcon()}</md-icon>
         </md-filled-icon-button>
         <span class="tooltip-text">${this._getTooltipText()}</span>
       </div>
@@ -127,9 +127,9 @@ export class ThemeSwitch extends LitElement {
       case 'dark':
         return 'dark_mode';
       case 'system':
-        return 'settings_suggest';
+        return 'settings_night_sight';
       default:
-        return 'settings_suggest';
+        return 'settings_night_sight';
     }
   }
 

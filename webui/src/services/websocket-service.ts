@@ -20,12 +20,35 @@ export class WebSocketService {
 
     this.socket.addEventListener('message', (event) => {
       try {
-        const message = JSON.parse(event.data) as WebSocketMessage;
+        const data = JSON.parse(event.data);
         
-        if (message.type === MessageType.STATE_UPDATE) {
-          const state = message.payload as DrumMachineState;
+        // Case 1: The message is a formatted WebSocketMessage with type and payload
+        if (data.type && data.type === MessageType.STATE_UPDATE && data.payload) {
+          const state = data.payload as DrumMachineState;
           this.notifyListeners(state);
+          return;
         }
+        
+        // Case 2: The message is a welcome message or other non-state message with a type field
+        if (data.type === 'connection') {
+          console.log('Connection status:', data.status);
+          return;
+        }
+        
+        // Case 3: The message is a direct state object from the Rust backend
+        // Check if it has the expected state properties
+        if (data.patterns !== undefined && 
+            data.currentPatternId !== undefined && 
+            data.isPlaying !== undefined && 
+            data.currentStep !== undefined && 
+            data.tempo !== undefined) {
+          const state = data as DrumMachineState;
+          console.log('Received state update:', state);
+          this.notifyListeners(state);
+          return;
+        }
+        
+        console.log('Received unhandled message format:', data);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }

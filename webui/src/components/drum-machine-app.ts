@@ -7,18 +7,24 @@ import './drum-track';
 import './pattern-selector';
 import './transport-controls';
 import './theme-switch';
+import './machine-info';
 import { WebSocketService } from '../services/websocket-service';
 import { DrumMachineState, Pattern } from '../models/types';
 
 @customElement('drum-machine-app')
 export class DrumMachineApp extends LitElement {
+  // Fixed default state to match Rust backend's State struct
   @state() private drumState: DrumMachineState = {
-    patterns: [],
-    currentPatternId: 0,
-    isPlaying: false,
-    currentStep: -1,
-    tempo: 120
+    trks: [],
+    playing: false,
+    trk_idx: 0,
+    tempo: 120,
+    division: 16,  // Default to 16th notes
+    len: 16       // Default pattern length
   };
+
+  // Since the backend doesn't use pattern IDs, we'll use a fixed value
+  private currentPatternId: number = 1;
 
   private webSocketService: WebSocketService;
 
@@ -133,17 +139,19 @@ export class DrumMachineApp extends LitElement {
 
         
         <div class="content">
+          <div class="glass-card">
+            <machine-info .state=${this.drumState}></machine-info>
+          </div>
           <div class="pattern-selector-container glass-card">
             <pattern-selector
-              .patterns=${this.drumState.patterns}
-              .currentPatternId=${this.drumState.currentPatternId}
+              .patterns={[{ id: 1, name: 'Pattern 1', tracks: [] }]}
+              .currentPatternId=${this.currentPatternId}
               @pattern-selected=${this.handlePatternSelected}
             ></pattern-selector>
           </div>
-          
           <div class="transport-container glass-card">
             <transport-controls
-              .isPlaying=${this.drumState.isPlaying}
+              .isPlaying=${this.drumState.playing}
               .tempo=${this.drumState.tempo}
               @play=${this.handlePlay}
               @stop=${this.handleStop}
@@ -157,7 +165,7 @@ export class DrumMachineApp extends LitElement {
               ${currentPattern?.tracks.map(track => html`
                 <drum-track
                   .track=${track}
-                  .currentStep=${this.drumState.currentStep}
+                  .trkIdx=${this.drumState.trk_idx}
                   @track-pad-toggled=${this.handlePadToggled}
                 ></drum-track>
               `)}
@@ -169,7 +177,12 @@ export class DrumMachineApp extends LitElement {
   }
 
   getCurrentPattern(): Pattern | undefined {
-    return this.drumState.patterns.find(p => p.id === this.drumState.currentPatternId);
+    return {
+      id: 1,
+      name: "Pattern 1",
+      tracks: this.drumState.trks
+    }
+    // return this.drumState.patterns.find(p => p.id === this.drumState.currentPatternId);
   }
 
   handleStateUpdate(state: DrumMachineState) {
@@ -197,7 +210,7 @@ export class DrumMachineApp extends LitElement {
   handlePadToggled(e: CustomEvent) {
     const { trackId, slotIndex, value } = e.detail;
     this.webSocketService.togglePad(
-      this.drumState.currentPatternId,
+      this.currentPatternId, // Use the fixed pattern ID
       trackId,
       slotIndex,
       value

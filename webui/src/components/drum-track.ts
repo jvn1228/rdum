@@ -6,7 +6,7 @@ import './drum-pad';
 @customElement('drum-track')
 export class DrumTrack extends LitElement {
   @property({ type: Object }) track!: Track;
-  @property({ type: Number }) currentStep = -1;
+  @property({ type: Number }) trkIdx = -1;
 
   static styles = css`
     :host {
@@ -48,13 +48,15 @@ export class DrumTrack extends LitElement {
       <div class="track-row">
         <div class="track-label">${this.track.name}</div>
         <div class="pads-container">
-          ${this.track.slots.map((active, index) => html`
-            <drum-pad 
-              ?active=${active} 
-              ?trigger=${this.currentStep === index}
-              @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(index, e.detail.value)}
-            ></drum-pad>
-          `)}
+          ${this.track.slots.map((vel, index) => {
+            let idx = (index + 1) % this.track.slots.length;
+            return html`
+              <drum-pad 
+                vel=${vel}
+                ?trigger=${this.trkIdx === idx}
+                @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(idx, e.detail.value)}
+              ></drum-pad>`
+          })}
         </div>
       </div>
     `;
@@ -63,7 +65,7 @@ export class DrumTrack extends LitElement {
   _handlePadToggled(index: number, value: boolean) {
     this.dispatchEvent(new CustomEvent('track-pad-toggled', {
       detail: {
-        trackId: this.track.id,
+        trackName: this.track.name,
         slotIndex: index,
         value
       },
@@ -73,10 +75,11 @@ export class DrumTrack extends LitElement {
   }
 
   updated(changedProperties: Map<string, any>) {
-    if (changedProperties.has('currentStep') && this.currentStep >= 0) {
+    if (changedProperties.has('trkIdx') && this.trkIdx >= 0) {
       const padElements = this.shadowRoot?.querySelectorAll('drum-pad');
-      if (padElements && padElements[this.currentStep]) {
-        (padElements[this.currentStep] as any).triggerAnimation();
+      let idx = (this.trkIdx + this.track.slots.length - 1) % this.track.slots.length;
+      if (padElements && padElements[idx]) {
+        (padElements[idx] as any).triggerAnimation();
       }
     }
   }

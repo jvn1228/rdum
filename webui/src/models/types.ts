@@ -1,7 +1,6 @@
 export interface Track {
-  id: number;
   name: string;
-  slots: boolean[];
+  slots: number[];
 }
 
 export interface Pattern {
@@ -11,11 +10,14 @@ export interface Pattern {
 }
 
 export interface DrumMachineState {
-  patterns: Pattern[];
-  currentPatternId: number;
-  isPlaying: boolean;
-  currentStep: number;
+  trks: Track[];
+  playing: boolean;
+  trk_idx: number; // Renamed from trkIdx to match Rust field name
   tempo: number;
+  division: number; // Added to match Rust struct
+  len: number; // Added to match Rust struct
+  latency?: any; // Added to match Rust struct, using any type for Duration
+  last_cmd?: any; // Added to match Rust struct, using any type for Command
 }
 
 export enum MessageType {
