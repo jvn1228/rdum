@@ -9,6 +9,8 @@ dependencies = [
     "adafruit-blinka>=8.58.1",
     "adafruit-circuitpython-ssd1306>=2.12.20",
     "gpiod>=2.3.0",
+    "lgpio>=0.2.2",
     "pyzmq>=26.4.0",
-    "protobuf>=6.31.1",
+    "protobuf>=5.29.3",
+    "pillow>=11.2.1",
 ]
