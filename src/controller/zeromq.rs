@@ -4,6 +4,9 @@ use std::error::Error;
 use std::convert::TryFrom;
 use zmq;
 use prost_types;
+use std::net::SocketAddr;
+use std::sync::mpsc;
+use std::thread;
 
 pub mod state {
     // Include the generated Protocol Buffer code
@@ -124,4 +127,56 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
     };
     
     Ok(cmd)
+}
+
+pub struct ZeroMQController {
+    addr: String,
+    cmd_tx_ch: mpsc::Sender<Command>,
+    state_rx_ch: mpsc::Receiver<State>,
+    last_state: State,
+}
+
+impl ZeroMQController {
+    pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<State>) -> Self {
+        Self {
+            addr: "tcp://*:5555".to_string(),
+            cmd_tx_ch,
+            state_rx_ch,
+            last_state: State::default(),
+        }
+    }
+
+    pub fn run(&mut self) {
+        let ctx = zmq::Context::new();
+        let socket = ctx.socket(zmq::REP).unwrap();
+        if let Err(e) = socket.bind(&self.addr) {
+            eprintln!("Failed to bind socket: {}", e);
+            return;
+        }
+
+        let mut polled_items = [socket.as_poll_item(zmq::POLLIN)];
+        
+        loop {
+            if let Ok(state) = self.state_rx_ch.try_recv() {
+                self.last_state = state;
+            }
+            
+            // Poll with zero timeout for non-blocking behavior
+            if zmq::poll(&mut polled_items, 0).is_ok() {
+                // Check if our socket has events
+                if polled_items[0].get_revents().contains(zmq::POLLIN) {
+                    match socket.recv_msg(zmq::DONTWAIT) {
+                        Ok(_) => {},
+                        Err(e) if e == zmq::Error::EAGAIN => {}, // No message available
+                        Err(_) => {},
+                    }
+                    match send_state(&socket, &self.last_state) {
+                        Ok(_) => {},
+                        Err(_) => {},
+                    }
+                }
+            }
+            thread::yield_now();
+        }
+    }
 }

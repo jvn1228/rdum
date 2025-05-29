@@ -50,7 +50,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut web_ctrl = controller::web::WebController::new(seq.get_command_tx(), seq.get_state_rx());
     thread::spawn(move || {
         web_ctrl.run();
-    }); 
+    });
+    let mut zmq_ctrl = controller::zeromq::ZeroMQController::new(seq.get_command_tx(), seq.get_state_rx());
+    thread::spawn(move || {
+        zmq_ctrl.run();
+    });
 
     thread::spawn(move || {
         sequencer::Sequencer::run_sound_loop(seq);
