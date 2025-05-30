@@ -22,6 +22,11 @@ class State:
     latency: float = 0.0
     playing: bool = False
 
+    def __post_init__(self):
+        self.trks = [TrackState(**trk) for trk in self.trks]
+        self.len = int(self.len)
+        self.trk_idx = int(self.trk_idx)
+
 class ZMQChannel:
     """Receives and decodes ZMQ messages from RDUM"""
     
@@ -67,7 +72,7 @@ class ZMQChannel:
                 state,
                 preserving_proto_field_name=True
             )
-            
+
             return State(**state_dict)
         except zmq.ZMQError as e:
             logger.error(f"ZMQ error: {e}")

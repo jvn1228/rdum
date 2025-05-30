@@ -59,26 +59,33 @@ class EmbeddedController:
         pass
 
     def render(self):
+        self._draw.rectangle((0, 0, self._oled.width, self._oled.height), fill=0)
+        width = self._oled.width
+        height = self._oled.height
+        len = self._last_state.len
+        # Perceived sync is better with a leading idx
+        trk_idx = (self._last_state.trk_idx - 1) % len
         # Display track_idx in header
-        header_text = f"Step: {self._last_state.trk_idx}"
+        header_text = f"{trk_idx+1 if trk_idx < len else len}"
         bbox: list[int] = self._font.getbbox(header_text)
         text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
         self._draw.text(
-            (self._oled.width // 2 - text_width // 2, 5),
+            (5, 5),
             header_text,
             font=self._font,
             fill=255
         )
         
         # Draw a separator line
-        self._draw.line([(0, text_height + 10), (self._oled.width, text_height + 10)], fill=255)
+        if trk_idx > 0:
+            self._draw.line([(0, text_height + 10), (width * trk_idx // (len-1), text_height + 10)], fill=255)
         
         # Calculate area for progress bars
         progress_start_y = text_height + 15
         progress_height = 10
         progress_spacing = 5
         label_width = 10
-        progress_width = self._oled.width - label_width - 5  # 5 pixels from right edge
+        progress_width = width - label_width - 5  # 5 pixels from right edge
         
         # Draw progress bars for each track
         for i, track in enumerate(self._last_state.trks):
@@ -94,17 +101,17 @@ class EmbeddedController:
                 fill=255
             )
             
-            # Draw track progress bar outline
-            self._draw.rectangle(
-                (label_width + 5, y_pos, label_width + 5 + progress_width, y_pos + progress_height),
-                outline=255,
-                fill=0
-            )
+            # # Draw track progress bar outline
+            # self._draw.rectangle(
+            #     (label_width + 5, y_pos, label_width + 5 + progress_width, y_pos + progress_height),
+            #     outline=255,
+            #     fill=0
+            # )
             
             # Draw progress bar segments based on pattern
             segment_width = progress_width / self._last_state.len
             for j, val in enumerate(track.slots):
-                if val == 1:  # If this step is active
+                if val > 0:  # If this step is active
                     segment_x = label_width + 5 + j * segment_width
                     self._draw.rectangle(
                         (segment_x, y_pos, segment_x + segment_width, y_pos + progress_height),
@@ -112,14 +119,14 @@ class EmbeddedController:
                         fill=255
                     )
             
-            # Highlight current position in pattern
-            cursor_x = label_width + 5 + self._last_state.division * segment_width
-            cursor_height = progress_height + 2
-            self._draw.rectangle(
-                (cursor_x, y_pos - 1, cursor_x + segment_width, y_pos + cursor_height - 1),
-                outline=255,
-                fill=None
-            )
+        # Highlight current position in pattern
+        cursor_x = label_width + 5 + trk_idx * segment_width
+        cursor_height = (progress_height + progress_spacing) * 3
+        self._draw.rectangle(
+            (cursor_x, progress_start_y - 1, cursor_x + segment_width, progress_start_y + cursor_height - 1),
+            outline=255,
+            fill=None
+        )
         
         # Display the image on the OLED
         self._oled.image(self._image)
@@ -127,9 +134,9 @@ class EmbeddedController:
 
     def run(self):
         while True:
+            self.receive_input()
             if time.monotonic() - self._last_refresh > REFRESH:
                 self._last_state = self.receive_state()
-                self.receive_input()
                 self.render()
                 self._last_refresh = time.monotonic()
             
