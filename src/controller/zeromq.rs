@@ -76,10 +76,9 @@ pub fn send_state(socket: &zmq::Socket, state: &State) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-/// Receive and deserialize a command from ZeroMQ
-pub fn receive_command(socket: &zmq::Socket) -> Result<Command, Box<dyn Error>> {
-    let msg = socket.recv_bytes(0)?;
-    let command_msg = state::CommandMessage::decode(msg.as_slice())?;
+/// Decode a Protocol Buffer CommandMessage into a Rust Command
+pub fn decode_command(msg: &[u8]) -> Result<Command, Box<dyn Error>> {
+    let command_msg = state::CommandMessage::decode(msg)?;
     
     // Convert the Protocol Buffer Command to the Rust Command
     proto_message_to_command(&command_msg)
@@ -124,6 +123,27 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
                 return Err("Missing division argument for SetDivision command".into());
             }
         },
+        ProtoCommand::PlaySound => {
+            if let Some(command_message::Args::PlaySoundArgs(play_sound_args)) = &proto_cmd.args {
+                Command::PlaySound(play_sound_args.track_index as usize, play_sound_args.velocity as u8)
+            } else {
+                return Err("Missing arguments for PlaySound command".into());
+            }
+        },
+        ProtoCommand::SetSlotVelocity => {
+            if let Some(command_message::Args::SlotArgs(slot_args)) = &proto_cmd.args {
+                Command::SetSlotVelocity(slot_args.track_index as usize, slot_args.slot_index as usize, slot_args.velocity as u8)
+            } else {
+                return Err("Missing arguments for SetSlotVelocity command".into());
+            }
+        },
+        ProtoCommand::SetTrackLength => {
+            if let Some(command_message::Args::TrackLengthArgs(track_length_args)) = &proto_cmd.args {
+                Command::SetTrackLength(track_length_args.track_index as usize)
+            } else {
+                return Err("Missing arguments for SetTrackLength command".into());
+            }
+        },
         _ => return Err("Unspecified command type".into()),
     };
     
@@ -166,8 +186,12 @@ impl ZeroMQController {
             if zmq::poll(&mut polled_items, 0).is_ok() {
                 // Check if our socket has events
                 if polled_items[0].get_revents().contains(zmq::POLLIN) {
-                    match socket.recv_msg(zmq::DONTWAIT) {
-                        Ok(_) => {},
+                    match socket.recv_bytes(zmq::DONTWAIT) {
+                        Ok(msg) => {
+                            if let Ok(command) = decode_command(&msg) {
+                                self.cmd_tx_ch.send(command).unwrap();
+                            }
+                        },
                         Err(e) if e == zmq::Error::EAGAIN => {}, // No message available
                         Err(_) => {},
                     }

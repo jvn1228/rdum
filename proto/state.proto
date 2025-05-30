@@ -28,13 +28,13 @@ enum Command {
   COMMAND_PLAY_SEQUENCER = 1;
   COMMAND_STOP_SEQUENCER = 2;
   COMMAND_SET_TEMPO = 3;
-  COMMAND_SET_DIVISION = 4;
-  COMMAND_SET_TRACK = 5;
-  COMMAND_TOGGLE_SLOT = 6;
-  COMMAND_CLEAR_TRACK = 7;
-  COMMAND_ADD_TRACK = 8;
-  COMMAND_DELETE_TRACK = 9;
-  COMMAND_RENAME_TRACK = 10;
+  COMMAND_SET_PATTERN = 4;
+  COMMAND_SET_DIVISION = 5;
+  COMMAND_PLAY_SOUND = 6;
+  COMMAND_SET_SLOT_VELOCITY = 7;
+  COMMAND_SET_TRACK_LENGTH = 8;
+  COMMAND_ADD_PATTERN = 9;
+  COMMAND_REMOVE_PATTERN = 10;
 }
 
 // CommandMessage contains both the command type and any associated arguments
@@ -45,34 +45,40 @@ message CommandMessage {
   oneof args {
     // For COMMAND_SET_TEMPO
     uint32 tempo = 2;
+
+    // For COMMAND_*_PATTERN
+    uint64 pattern_index = 3;
     
     // For COMMAND_SET_DIVISION
-    uint32 division = 3;
+    uint32 division = 4;
     
-    // For COMMAND_SET_TRACK
-    uint64 track_index = 4;
+    // For COMMAND_PLAY_SOUND
+    PlaySoundArgs play_sound_args = 5;
     
-    // For COMMAND_TOGGLE_SLOT
-    ToggleSlotArgs toggle_slot = 5;
+    // For COMMAND_SET_SLOT_VELOCITY
+    SlotArgs slot_args = 6;
     
-    // For COMMAND_ADD_TRACK
-    string new_track_name = 6;
-    
-    // For COMMAND_DELETE_TRACK
-    uint64 delete_track_index = 7;
-    
-    // For COMMAND_RENAME_TRACK
-    RenameTrackArgs rename_track = 8;
+    // For COMMAND_SET_TRACK_LENGTH
+    TrackLengthArgs track_length_args = 7;
   }
 }
 
 // Arguments for toggle slot command
-message ToggleSlotArgs {
-  uint64 slot_index = 1;
+message SlotArgs {
+  uint64 track_index = 1;
+  uint64 slot_index = 2;
+  uint32 velocity = 3;
 }
 
-// Arguments for rename track command
-message RenameTrackArgs {
+// Arguments for set track length command
+message TrackLengthArgs {
   uint64 track_index = 1;
-  string new_name = 2;
+  uint64 track_length = 2;
 }
+
+// Arguments for play sound command
+message PlaySoundArgs {
+  uint64 track_index = 1;
+  uint32 velocity = 2;
+}
+

@@ -8,18 +8,24 @@ use std::thread::yield_now;
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum Command {
-    SetTempo(u8),
-    SetSlotVelocity(u8, u8),
-    SetSequencerLength(usize),
-    PlaySound(usize, u8),
-    SetDivision(Division),
-    Waiting,
+    // Sequencer playback commands
     PlaySequencer,
     StopSequencer,
+    SetTempo(u8),
+    SetPattern(u8),
+    SetDivision(Division),
+    PlaySound(usize, u8),
+    // Track program commands
+    SetSlotVelocity(usize, usize, u8),
+    SetTrackLength(usize),
+    // Sequencer program commands
+    AddPattern,
+    RemovePattern(u8),
+    Unspecified,
 }
 
 impl Default for Command {
-    fn default() -> Self { Command::Waiting }
+    fn default() -> Self { Command::Unspecified }
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -193,6 +199,10 @@ impl Props {
     pub fn disable_play(&mut self) {
         self.playing = false;
     }
+
+    pub fn set_division(&mut self, division: Division) {
+        self.division = division as u8;
+    }
 }
 
 /// Struct wrapping sequencer Props allowing us to modify them
@@ -236,10 +246,9 @@ impl PropsHandle {
         self.with_lock(|props| { props.division })
     }
 
-    pub fn set_division(&self, division: Division) -> u8 {
+    pub fn set_division(&self, division: Division) {
         self.with_lock(|props| {
-            props.division = division as u8;
-            props.division
+            props.set_division(division);
         })
     }
 
@@ -355,7 +364,7 @@ impl Sequencer {
                 division: 4,
                 playing: false,
                 command_rx_ch: command_rx,
-                last_cmd: Command::Waiting
+                last_cmd: Command::Unspecified
             }),
             stream,
             latency: Duration::ZERO,
@@ -523,6 +532,10 @@ impl Sequencer {
                             })(trk, vel),
                         Command::PlaySequencer => props.enable_play(),
                         Command::StopSequencer => props.disable_play(),
+                        Command::SetDivision(div) => props.set_division(div),
+                        Command::SetSlotVelocity(trk, slot, vel) => {
+                            props.tracks[trk].slots[slot].velocity = vel;
+                        },
                         _ => ()
                     }
                 } else {
