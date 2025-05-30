@@ -22,13 +22,14 @@ pub fn serialize_state(state: &State) -> Result<Vec<u8>, Box<dyn Error>> {
     // Convert the Rust State to the Protocol Buffer State
     let proto_state = state::State {
         tempo: state.tempo as u32,
-        trk_idx: state.trk_idx as u64,
         trks: state.trks.iter().map(|track| state::TrackState {
             slots: track.slots.iter().map(|&slot| slot as u32).collect(),
             name: track.name.clone(),
+            idx: track.idx as u64,
+            len: track.len as u64,
         }).collect(),
         division: state.division as u32,
-        len: state.len as u64,
+        default_len: state.default_len as u64,
         latency: Some(prost_types::Duration {
             seconds: state.latency.as_secs() as i64,
             nanos: state.latency.subsec_nanos() as i32,

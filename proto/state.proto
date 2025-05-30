@@ -7,10 +7,9 @@ import "google/protobuf/duration.proto";
 // Protocol buffers schema generated from sequencer::State struct
 message State {
   uint32 tempo = 1;
-  uint64 trk_idx = 2;
   repeated TrackState trks = 3;
   uint32 division = 4;
-  uint64 len = 5;
+  uint64 default_len = 5;
   google.protobuf.Duration latency = 6;
   bool playing = 7;
 }
@@ -19,6 +18,8 @@ message State {
 message TrackState {
   repeated uint32 slots = 1;
   string name = 2;
+  uint64 idx = 3;
+  uint64 len = 4;
 }
 
 // Command enum represents the possible commands that can be sent to the sequencer

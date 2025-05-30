@@ -39,7 +39,9 @@ pub enum Division {
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct TrackState {
     pub slots: Vec<u8>,
-    pub name: String
+    pub name: String,
+    pub len: usize,
+    pub idx: usize,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -48,10 +50,9 @@ pub struct TrackState {
 /// Refer to the Props struct to see more descriptors
 pub struct State {
     pub tempo: u8,
-    pub trk_idx: usize,
     pub trks: Vec<TrackState>,
     pub division: u8,
-    pub len: usize,
+    pub default_len: usize,
     pub latency: Duration,
     pub last_cmd: Command,
     pub playing: bool,
@@ -128,9 +129,12 @@ pub struct Slot {
 /// 
 /// It has a vector of velocities that determine when a sample is triggered, an audio sink to queue it,
 /// and a reference to the sample itself
+/// Tracks also can have their own length, leading to interesting pattern variations
 pub struct Track {
     pub slots: Vec<Slot>,
     pub sample: Arc<BufferedSample>,
+    pub idx: usize,
+    pub len: usize,
     pub sink: Arc<Sink>,
     pub name: String,
 }
@@ -146,6 +150,8 @@ impl Track {
         Track {
             slots,
             sample,
+            idx: 0, 
+            len,
             sink,
             name
         }
@@ -156,10 +162,8 @@ impl Track {
 /// modified by the user
 pub struct Props {
     pub tracks: Vec<Track>,
-    /// The length of the sequencer playback, discretized to beats
-    /// 
-    /// All tracks are the same length at the moment
-    pub len: usize,
+    /// It's the default length of a new track, unit is beats
+    pub default_len: usize,
     /// beats per minutes
     tempo: u8,
     /// calculated based on tempo, the length of one pulse of the sequencer
@@ -315,7 +319,6 @@ pub struct Sequencer {
     /// Properties that can be modified
     pub props: PropsHandle,
     pub stream: Arc<OutputStreamHandle>,
-    pub trk_idx: usize,
     /// Average of current and last cycle time
     latency: Duration,
     /// the actual sleep time, which may differ from pulse interval
@@ -340,12 +343,12 @@ pub struct Sequencer {
 // Maybe tracks should have independent lengths?
 impl Sequencer {
     /// Creates a new sequencer instance
-    pub fn new(len: usize, stream: Arc<OutputStreamHandle>) -> Sequencer {
+    pub fn new(stream: Arc<OutputStreamHandle>) -> Sequencer {
         let (command_tx, command_rx) = mpsc::channel();
         Sequencer {
             props: PropsHandle::new(Props {
                 tracks: vec![],
-                len,
+                default_len: 16,
                 tempo: 120,
                 // corresponds to 120 bpm
                 pulse_interval: Duration::from_secs_f32(2.5/120.0),
@@ -355,7 +358,6 @@ impl Sequencer {
                 last_cmd: Command::Waiting
             }),
             stream,
-            trk_idx: 0,
             latency: Duration::ZERO,
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
             // pulses per bar, 24 per quarter note
@@ -389,7 +391,7 @@ impl Sequencer {
         let sink = Arc::new(sink);
         sink.play();
         self.props.with_lock(|props| {
-            props.tracks.push(Track::new(name, props.len, sample, sink));
+            props.tracks.push(Track::new(name, props.default_len, sample, sink));
             Ok(TrackHandle::new(self.props.clone(), props.tracks.len() as u8 - 1))
         })
     }
@@ -405,6 +407,15 @@ impl Sequencer {
         }
     }
 
+    /// Resets all track indices to 0
+    fn reset_playheads(&mut self) {
+        self.props.with_lock(|props| {
+            for t in &mut props.tracks {
+                t.idx = 0;
+            }
+        })
+    }
+
     /// The VIP function. Plays tracks, sends state, updates latency
     fn play_next(&mut self) {
         let playing = self.props.with_lock(|props| { props.playing });
@@ -415,23 +426,22 @@ impl Sequencer {
             if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
                 self.props.with_lock(|props| {
                     for t in &mut props.tracks {
-                        let vel = &mut t.slots[self.trk_idx].velocity;
+                        let vel = &mut t.slots[t.idx].velocity;
                         if *vel > 0 {
                             Sequencer::append_sample_to_sink(t.sink.clone(), t.sample.clone(), vel);
                         }
+                        t.idx = (t.idx + 1) % t.len;
                     }
-                    self.trk_idx = (self.trk_idx + 1) % props.len;
                 })
             }
             self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
             
             // to do send midi clk msg
             self.set_latency(Instant::now().duration_since(start));
-        // props cannot modify the sequencer idx since I would like that to run without maybe being locked
-        // so it's reset to 0 here since playing the loop from the beginning is probably more useful
+
         } else if self.pulse_idx != 0 {
             self.pulse_idx = 0;
-            self.trk_idx = 0;
+            self.reset_playheads();
         }
 
         self.tx_state();
@@ -471,16 +481,17 @@ impl Sequencer {
             let trks: Vec<TrackState> = props.tracks.iter().map(|t| {
                 TrackState {
                     slots: t.slots.iter().map(|s| { s.velocity }).collect(),
-                    name: t.name.clone()
+                    name: t.name.clone(),
+                    idx: t.idx,
+                    len: t.len
                 }
             }).collect();
             for tx in &self.state_tx_ch {
                 let _ = tx.send(State {
                     tempo: props.tempo,
-                    trk_idx: self.trk_idx,
                     trks: trks.clone(),
                     division: props.division,
-                    len: props.len,
+                    default_len: props.default_len,
                     latency: self.latency,
                     last_cmd: props.last_cmd,
                     playing: props.playing

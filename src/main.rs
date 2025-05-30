@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (_stream, stream_handle) = OutputStream::try_default()?;
     let stream_handle = Arc::new(stream_handle);                                                                                                                                                                                             
 
-    let mut seq = sequencer::Sequencer::new(8, stream_handle);
+    let mut seq = sequencer::Sequencer::new(stream_handle);
     seq.play();
 
     let seq_state_rx = seq.get_state_rx();
@@ -35,15 +35,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let sample_hat = new_buffered_sample("one_shots/hat0.wav")?;
     let trk_hat = seq.add_track("Hat".to_string(), Arc::clone(&sample_hat))?;
-    trk_hat.set_slots_vel(&[32, 127, 32, 108, 32, 127, 32, 108]);
+    trk_hat.set_slots_vel(&[32, 127, 32, 108, 32, 127, 32, 108, 32, 127, 32, 108, 32, 127, 32, 108]);
 
     let sample_kick = new_buffered_sample("one_shots/kick0.wav")?;
     let trk_kick = seq.add_track("Kick".to_string(), Arc::clone(&sample_kick))?;
-    trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75]);
+    trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75, 127, 0, 0, 90, 127, 0, 0, 75]);
 
     let sample_snare = new_buffered_sample("one_shots/snare0.wav")?;
     let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);          
+    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0, 0, 127, 0, 0, 47, 127, 0, 0]);          
 
     let seq_props_handle = seq.props.clone();
 
@@ -63,29 +63,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         sequencer::Sequencer::run_command_loop(seq_props_handle);
     });                                                                                            
                                                                                                                            
-    // let mut terminal = ratatui::init();
-    // let app_result = ctrl.run(&mut terminal);
-    // ratatui::restore();
-    // app_result?;
+    let mut terminal = ratatui::init();
+    let app_result = ctrl.run(&mut terminal);
+    ratatui::restore();
+    app_result?;
     // Configure terminal for non-blocking input
     terminal::enable_raw_mode().expect("Failed to enable raw mode");
     
-    println!("Running (press 'q' to exit)...");
+    // println!("Running (press 'q' to exit)...");
     
-    // Main loop with key detection
-    loop {
-        // Check for keypress events without blocking
-        if event::poll(Duration::from_millis(10)).unwrap() {
-            if let Event::Key(key_event) = event::read().unwrap() {
-                if key_event.code == KeyCode::Char('q') {
-                    println!("\nReceived 'q' key press. Shutting down...");
-                    break;
-                }
-            }
-        }
+    // // Main loop with key detection
+    // loop {
+    //     // Check for keypress events without blocking
+    //     if event::poll(Duration::from_millis(10)).unwrap() {
+    //         if let Event::Key(key_event) = event::read().unwrap() {
+    //             if key_event.code == KeyCode::Char('q') {
+    //                 println!("\nReceived 'q' key press. Shutting down...");
+    //                 break;
+    //             }
+    //         }
+    //     }
         
-        thread::yield_now();
-    }
+    //     thread::yield_now();
+    // }
     
     // Clean up terminal settings
     terminal::disable_raw_mode().expect("Failed to disable raw mode");
