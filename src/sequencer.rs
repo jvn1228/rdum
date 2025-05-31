@@ -62,6 +62,9 @@ pub struct State {
     pub latency: Duration,
     pub last_cmd: Command,
     pub playing: bool,
+    pub pattern_idx: usize,
+    pub pattern_len: usize,
+    pub pattern_name: String,
 }
 
 #[derive(Clone)]
@@ -164,10 +167,73 @@ impl Track {
     }
 }
 
+pub struct ChokeGrp {
+    pub track_idxs: Vec<usize>,
+}
+
+impl ChokeGrp {
+    pub fn new(tracks: Vec<usize>) -> ChokeGrp {
+        ChokeGrp {
+            track_idxs: tracks
+        }
+    }
+
+    pub fn add_track(&mut self, track: usize) {
+        self.track_idxs.push(track);
+    }
+
+    pub fn remove_track(&mut self, track_idx: usize) {
+        self.track_idxs.retain(|&x| x != track_idx);
+    }
+
+    pub fn is_member(&self, track_idx: usize) -> bool {
+        self.track_idxs.contains(&track_idx)
+    }
+
+    // Returns list of other indices if a given track index is
+    // in the choke group
+    pub fn get_choked_idxs(&self, track_idx: usize) -> Vec<usize> {
+        if !self.is_member(track_idx) {
+            return vec![];
+        }
+        self.track_idxs.iter().filter(|&&x| x != track_idx).cloned().collect()
+    }
+}
+
+/// `Pattern` is a collection of tracks
+/// 
+/// To do: this probably needs to wrap as a props handle as well
+pub struct Pattern {
+    pub tracks: Vec<Track>,
+    pub choke_grps: Vec<ChokeGrp>,
+    pub name: String,
+}
+
+impl Pattern {
+    // Returns list of other track indices across all groups that the given track index chokes
+    pub fn get_choked_idxs(&self, track_idx: usize) -> Vec<usize> {
+        let mut idxs = self.choke_grps
+            .iter()
+            .filter(|choke_grp| choke_grp.is_member(track_idx))
+            .flat_map(|choke_grp| choke_grp.get_choked_idxs(track_idx))
+            .collect::<Vec<usize>>();
+        idxs.dedup();
+        idxs
+    }
+
+    // Returns true if the track is in a choke group with any triggered tracks
+    pub fn is_trk_choked(&self, triggered_idxs: &Vec<usize>, track_idx: usize) -> bool {
+        triggered_idxs
+            .iter()
+            .any(|&x| self.get_choked_idxs(x).contains(&track_idx))
+    }
+}
+
 /// Struct that describes internal sequencer state that can be
 /// modified by the user
 pub struct Props {
-    pub tracks: Vec<Track>,
+    pub patterns: Vec<Pattern>,
+    pub pattern_idx: usize,
     /// It's the default length of a new track, unit is beats
     pub default_len: usize,
     /// beats per minutes
@@ -291,7 +357,9 @@ impl TrackHandle {
         F: FnOnce(&mut Track) -> T,
     {
         self.inner.with_lock(|props| {
-            let t = &mut props.tracks[self.trk as usize];
+            let t = &mut props
+                .patterns[props.pattern_idx]
+                .tracks[self.trk as usize];
             func(t)
         })
     }
@@ -316,8 +384,8 @@ impl TrackHandle {
 
 /// `Sequencer` is the main sound engine
 /// 
-/// The hierarchy looks like this: Sequencer -> Track -> Sample
-/// When playing, the sequencer keeps track of the current playhead position,
+/// The hierarchy looks like this: Sequencer -> Pattern -> Track -> Sample
+/// When playing, the sequencer keeps track of the current playhead positions,
 /// triggering samples loaded into the individual tracks based on the
 /// track's vector of sample velocities
 /// It runs at a higher refresh rate (pulse) than the beat since it can
@@ -356,8 +424,13 @@ impl Sequencer {
         let (command_tx, command_rx) = mpsc::channel();
         Sequencer {
             props: PropsHandle::new(Props {
-                tracks: vec![],
-                default_len: 16,
+                patterns: vec![Pattern {
+                    tracks: vec![],
+                    choke_grps: vec![],
+                    name: "Pattern 1".to_string()
+                }],
+                pattern_idx: 0,
+                default_len: 8,
                 tempo: 120,
                 // corresponds to 120 bpm
                 pulse_interval: Duration::from_secs_f32(2.5/120.0),
@@ -391,7 +464,7 @@ impl Sequencer {
         self.props.disable_play();
     }
 
-    /// Adds an empty track to the sequencer
+    /// Adds an empty track to the sequencer at the current pattern
     /// 
     /// Because trks are wrapped in a property handler to ensure thread safety, we can't directly return access
     /// to the track. Instead the index of the created track is returned for reference
@@ -400,8 +473,9 @@ impl Sequencer {
         let sink = Arc::new(sink);
         sink.play();
         self.props.with_lock(|props| {
-            props.tracks.push(Track::new(name, props.default_len, sample, sink));
-            Ok(TrackHandle::new(self.props.clone(), props.tracks.len() as u8 - 1))
+            let tracks = &mut props.patterns[props.pattern_idx].tracks;
+            tracks.push(Track::new(name, props.default_len, sample, sink));
+            Ok(TrackHandle::new(self.props.clone(), tracks.len() as u8 - 1))
         })
     }
 
@@ -419,7 +493,8 @@ impl Sequencer {
     /// Resets all track indices to 0
     fn reset_playheads(&mut self) {
         self.props.with_lock(|props| {
-            for t in &mut props.tracks {
+            let tracks = &mut props.patterns[props.pattern_idx].tracks;
+            for t in tracks {
                 t.idx = 0;
             }
         })
@@ -434,12 +509,26 @@ impl Sequencer {
             // and then in fact we might have to move that tracking to the track
             if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
                 self.props.with_lock(|props| {
-                    for t in &mut props.tracks {
+                    let mut triggered_idxs: Vec<usize> = vec![];
+                    let pattern = &mut props.patterns[props.pattern_idx];
+                    let tracks = &mut pattern.tracks;
+                    for (i, t) in tracks.into_iter().enumerate() {
                         let vel = &mut t.slots[t.idx].velocity;
                         if *vel > 0 {
                             Sequencer::append_sample_to_sink(t.sink.clone(), t.sample.clone(), vel);
+                            triggered_idxs.push(i);
                         }
+
                         t.idx = (t.idx + 1) % t.len;
+                    }
+                    
+                    // Redefine as immutable to prevent triggering borrow checker
+                    let pattern = &props.patterns[props.pattern_idx];
+                    let tracks = &pattern.tracks;
+                    for i in 0..tracks.len() {
+                        if pattern.is_trk_choked(&triggered_idxs, i) {
+                            tracks[i].sink.skip_one();
+                        }
                     }
                 })
             }
@@ -487,14 +576,20 @@ impl Sequencer {
     /// Transmits a subset of internal sequencer state
     fn tx_state(&self) {
         self.props.with_lock(|props| {
-            let trks: Vec<TrackState> = props.tracks.iter().map(|t| {
-                TrackState {
-                    slots: t.slots.iter().map(|s| { s.velocity }).collect(),
-                    name: t.name.clone(),
-                    idx: t.idx,
-                    len: t.len
-                }
-            }).collect();
+            let trks: Vec<TrackState> = props
+                .patterns[props.pattern_idx]
+                .tracks
+                .iter()
+                .map(|t| {
+                    TrackState {
+                        slots: t.slots.iter().map(|s| { s.velocity }).collect(),
+                        name: t.name.clone(),
+                        idx: t.idx,
+                        len: t.len
+                    }
+                })
+                .collect();
+
             for tx in &self.state_tx_ch {
                 let _ = tx.send(State {
                     tempo: props.tempo,
@@ -503,7 +598,10 @@ impl Sequencer {
                     default_len: props.default_len,
                     latency: self.latency,
                     last_cmd: props.last_cmd,
-                    playing: props.playing
+                    playing: props.playing,
+                    pattern_idx: props.pattern_idx,
+                    pattern_len: props.patterns.len(),
+                    pattern_name: props.patterns[props.pattern_idx].name.clone(),
                 });
             }
         })
@@ -525,7 +623,7 @@ impl Sequencer {
                     match cmd {
                         Command::SetTempo(bpm) => props.set_tempo(bpm),
                         Command::PlaySound(trk, vel) => (|trk, vel| {
-                                let trk: &mut Track = &mut props.tracks[trk];
+                                let trk: &mut Track = &mut props.patterns[props.pattern_idx].tracks[trk];
                                 let mut vel = vel;
                                 let v = &mut vel;
                                 Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
@@ -534,7 +632,7 @@ impl Sequencer {
                         Command::StopSequencer => props.disable_play(),
                         Command::SetDivision(div) => props.set_division(div),
                         Command::SetSlotVelocity(trk, slot, vel) => {
-                            props.tracks[trk].slots[slot].velocity = vel;
+                            props.patterns[props.pattern_idx].tracks[trk].slots[slot].velocity = vel;
                         },
                         _ => ()
                     }

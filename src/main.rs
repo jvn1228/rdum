@@ -10,6 +10,8 @@ use sequencer::Command;
 use controller::cli::CLIController;
 use crossterm::{event::{self, Event, KeyCode}, terminal};
 
+use sequencer::ChokeGrp;
+
 fn new_buffered_sample(fp: &str) -> Result<Arc<sequencer::BufferedSample>, Box<dyn Error>> {
     let pwd = env!("CARGO_MANIFEST_DIR");  
     let sample = sequencer::BufferedSample::load_from_file(&format!("{pwd}/{fp}").to_string())?;
@@ -35,17 +37,25 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let sample_hat = new_buffered_sample("one_shots/hat0.wav")?;
     let trk_hat = seq.add_track("Hat".to_string(), Arc::clone(&sample_hat))?;
-    trk_hat.set_slots_vel(&[32, 127, 32, 108, 32, 127, 32, 108, 32, 127, 32, 108, 32, 127, 32, 108]);
+    trk_hat.set_slots_vel(&[50, 0, 0, 0, 0, 127, 32, 0]);
 
     let sample_kick = new_buffered_sample("one_shots/kick0.wav")?;
     let trk_kick = seq.add_track("Kick".to_string(), Arc::clone(&sample_kick))?;
-    trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75, 127, 0, 0, 90, 127, 0, 0, 75]);
+    trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75]);
 
     let sample_snare = new_buffered_sample("one_shots/snare0.wav")?;
     let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
-    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0, 0, 127, 0, 0, 47, 127, 0, 0]);          
+    trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);         
+
+    let sample_open_hat = new_buffered_sample("one_shots/open_hat0.wav")?;
+    let trk_open_hat = seq.add_track("Open Hat".to_string(), Arc::clone(&sample_open_hat))?;
+    trk_open_hat.set_slots_vel(&[0, 0, 0, 0, 0, 0, 0, 127]);         
 
     let seq_props_handle = seq.props.clone();
+
+    seq_props_handle.with_lock(|props| {
+        props.patterns[0].choke_grps.push(ChokeGrp::new(vec![0, 3]));
+    });
 
     let mut web_ctrl = controller::web::WebController::new(seq.get_command_tx(), seq.get_state_rx());
     thread::spawn(move || {
