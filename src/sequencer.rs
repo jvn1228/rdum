@@ -12,7 +12,7 @@ pub enum Command {
     PlaySequencer,
     StopSequencer,
     SetTempo(u8),
-    SetPattern(u8),
+    SetPattern(usize),
     SetDivision(Division),
     PlaySound(usize, u8),
     // Track program commands
@@ -20,7 +20,7 @@ pub enum Command {
     SetTrackLength(usize),
     // Sequencer program commands
     AddPattern,
-    RemovePattern(u8),
+    RemovePattern(usize),
     Unspecified,
 }
 
@@ -622,12 +622,18 @@ impl Sequencer {
                     props.last_cmd = cmd;
                     match cmd {
                         Command::SetTempo(bpm) => props.set_tempo(bpm),
-                        Command::PlaySound(trk, vel) => (|trk, vel| {
-                                let trk: &mut Track = &mut props.patterns[props.pattern_idx].tracks[trk];
+                        Command::PlaySound(trk_idx, vel) => (|trk_idx, vel| {
+                                let trk: &mut Track = &mut props.patterns[props.pattern_idx].tracks[trk_idx];
                                 let mut vel = vel;
                                 let v = &mut vel;
                                 Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
-                            })(trk, vel),
+                                let trks = &props.patterns[props.pattern_idx].tracks;
+                                for i in 0..trks.len() {
+                                    if props.patterns[props.pattern_idx].is_trk_choked(&vec![trk_idx], i) {
+                                        trks[i].sink.skip_one();
+                                    }
+                                }
+                            })(trk_idx, vel),
                         Command::PlaySequencer => props.enable_play(),
                         Command::StopSequencer => props.disable_play(),
                         Command::SetDivision(div) => props.set_division(div),

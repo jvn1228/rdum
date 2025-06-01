@@ -17,10 +17,13 @@ export class DrumMachineApp extends LitElement {
   @state() private drumState: DrumMachineState = {
     trks: [],
     playing: false,
-    trk_idx: 0,
     tempo: 120,
     division: 16,  // Default to 16th notes
-    len: 16       // Default pattern length
+    pattern_len: 16,       // Default pattern length
+    pattern_idx: 0,
+    pattern_name: "Pattern 1",
+    latency: 0,
+    default_len: 16,
   };
 
   // Since the backend doesn't use pattern IDs, we'll use a fixed value
@@ -162,10 +165,10 @@ export class DrumMachineApp extends LitElement {
           <div class="tracks-container glass-card">
             <div class="tracks-title">Pattern: ${currentPattern?.name || 'None'}</div>
             <div class="drum-grid-container">
-              ${currentPattern?.tracks.map(track => html`
+              ${currentPattern?.tracks.map((track, idx) => html`
                 <drum-track
                   .track=${track}
-                  .trkIdx=${this.drumState.trk_idx}
+                  .trkIdx=${idx}
                   @track-pad-toggled=${this.handlePadToggled}
                 ></drum-track>
               `)}
@@ -208,12 +211,12 @@ export class DrumMachineApp extends LitElement {
   }
 
   handlePadToggled(e: CustomEvent) {
-    const { trackId, slotIndex, value } = e.detail;
+    const { trackIdx, slotIdx, velocity } = e.detail;
     this.webSocketService.togglePad(
       this.currentPatternId, // Use the fixed pattern ID
-      trackId,
-      slotIndex,
-      value
+      trackIdx,
+      slotIdx,
+      velocity
     );
   }
   

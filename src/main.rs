@@ -73,29 +73,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         sequencer::Sequencer::run_command_loop(seq_props_handle);
     });                                                                                            
                                                                                                                            
-    let mut terminal = ratatui::init();
-    let app_result = ctrl.run(&mut terminal);
-    ratatui::restore();
-    app_result?;
+    // let mut terminal = ratatui::init();
+    // let app_result = ctrl.run(&mut terminal);
+    // ratatui::restore();
+    // app_result?;
     // Configure terminal for non-blocking input
     terminal::enable_raw_mode().expect("Failed to enable raw mode");
     
     // println!("Running (press 'q' to exit)...");
     
-    // // Main loop with key detection
-    // loop {
-    //     // Check for keypress events without blocking
-    //     if event::poll(Duration::from_millis(10)).unwrap() {
-    //         if let Event::Key(key_event) = event::read().unwrap() {
-    //             if key_event.code == KeyCode::Char('q') {
-    //                 println!("\nReceived 'q' key press. Shutting down...");
-    //                 break;
-    //             }
-    //         }
-    //     }
+    // Main loop with key detection
+    loop {
+        // Check for keypress events without blocking
+        if event::poll(Duration::from_millis(10)).unwrap() {
+            if let Event::Key(key_event) = event::read().unwrap() {
+                if key_event.code == KeyCode::Char('q') {
+                    println!("\nReceived 'q' key press. Shutting down...");
+                    break;
+                }
+            }
+        }
         
-    //     thread::yield_now();
-    // }
+        thread::yield_now();
+    }
     
     // Clean up terminal settings
     terminal::disable_raw_mode().expect("Failed to disable raw mode");

@@ -94,7 +94,7 @@ export class MachineInfo extends LitElement {
       <div class="machine-info">
         <div class="info-item">
           <div class="info-title">Pattern Length</div>
-          <div class="info-value">${this.state.len} steps</div>
+          <div class="info-value">${this.state.pattern_len} steps</div>
         </div>
         
         <div class="info-item">

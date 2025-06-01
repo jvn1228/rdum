@@ -93,7 +93,7 @@ export class TransportControls extends LitElement {
         <div class="tempo-control">
           <span>Tempo:</span>
           <md-slider
-            min="60"
+            min="20"
             max="200"
             value=${this.tempo}
             @change=${this._handleTempoChange}
@@ -120,7 +120,7 @@ export class TransportControls extends LitElement {
   }
 
   _handleTempoChange(e: CustomEvent) {
-    const newTempo = Math.round(e.detail.value);
+    const newTempo = parseInt((e.target as HTMLInputElement).value);
     this.dispatchEvent(new CustomEvent('tempo-change', {
       detail: { tempo: newTempo },
       bubbles: true,

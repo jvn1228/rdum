@@ -74,14 +74,14 @@ export class WebSocketService {
     }
   }
 
-  public togglePad(patternId: number, trackId: number, slotIndex: number, value: boolean): void {
+  public togglePad(patternIdx: number, trackIdx: number, slotIdx: number, velocity: number): void {
     const payload: TogglePadPayload = {
-      patternId,
-      trackId,
-      slotIndex,
-      value
+      patternIdx,
+      trackIdx,
+      slotIdx,
+      velocity
     };
-    this.sendMessage(MessageType.TOGGLE_PAD, payload);
+    this.sendMessage(MessageType.SET_SLOT_VELOCITY, payload);
   }
 
   public changePattern(patternId: number): void {
@@ -92,18 +92,18 @@ export class WebSocketService {
   }
 
   public play(): void {
-    this.sendMessage(MessageType.PLAY, {});
+    this.sendMessage(MessageType.PLAY_SEQUENCER, {});
   }
 
   public stop(): void {
-    this.sendMessage(MessageType.STOP, {});
+    this.sendMessage(MessageType.STOP_SEQUENCER, {});
   }
 
   public changeTempo(tempo: number): void {
     const payload: ChangeTempoPayload = {
       tempo
     };
-    this.sendMessage(MessageType.CHANGE_TEMPO, payload);
+    this.sendMessage(MessageType.SET_TEMPO, payload);
   }
 
   private sendMessage(type: MessageType, payload: any): void {

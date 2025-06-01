@@ -53,8 +53,8 @@ export class DrumTrack extends LitElement {
             return html`
               <drum-pad 
                 vel=${vel}
-                ?trigger=${this.trkIdx === idx}
-                @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(idx, e.detail.value)}
+                ?trigger=${this.track.idx === idx}
+                @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(index, e.detail.value)}
               ></drum-pad>`
           })}
         </div>
@@ -65,24 +65,24 @@ export class DrumTrack extends LitElement {
   _handlePadToggled(index: number, value: boolean) {
     this.dispatchEvent(new CustomEvent('track-pad-toggled', {
       detail: {
-        trackName: this.track.name,
-        slotIndex: index,
-        value
+        trackIdx: this.trkIdx,
+        slotIdx: index,
+        velocity: value ? 127 : 0
       },
       bubbles: true,
       composed: true
     }));
   }
 
-  updated(changedProperties: Map<string, any>) {
-    if (changedProperties.has('trkIdx') && this.trkIdx >= 0) {
-      const padElements = this.shadowRoot?.querySelectorAll('drum-pad');
-      let idx = (this.trkIdx + this.track.slots.length - 1) % this.track.slots.length;
-      if (padElements && padElements[idx]) {
-        (padElements[idx] as any).triggerAnimation();
-      }
-    }
-  }
+  // updated(changedProperties: Map<string, any>) {
+  //   if (changedProperties.has('trkIdx') && this.trkIdx >= 0) {
+  //     const padElements = this.shadowRoot?.querySelectorAll('drum-pad');
+  //     let idx = (this.trkIdx + this.track.slots.length - 1) % this.track.slots.length;
+  //     if (padElements && padElements[idx]) {
+  //       (padElements[idx] as any).triggerAnimation();
+  //     }
+  //   }
+  // }
 }
 
 declare global {

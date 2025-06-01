@@ -1,25 +1,44 @@
 use std::sync::mpsc;
 use std::net::SocketAddr;
-use async_tungstenite::tungstenite::Utf8Bytes;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use async_tungstenite::{tokio::accept_async, tungstenite::Message};
 use futures::{SinkExt, StreamExt};
-use crate::sequencer::{Command, State};
+use crate::sequencer::{Command, State, Division};
 use serde_json;
-use std::thread;
 use serde;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 enum MessageType {
     #[serde(rename = "state_update")]
-    StateUpdate}
+    StateUpdate,
+    #[serde(rename = "play_sequencer")]
+    PlaySequencer,
+    #[serde(rename = "stop_sequencer")]
+    StopSequencer,
+    #[serde(rename = "set_tempo")]
+    SetTempo,
+    #[serde(rename = "set_pattern")]
+    SetPattern,
+    #[serde(rename = "set_division")]
+    SetDivision,
+    #[serde(rename = "play_sound")]
+    PlaySound,
+    #[serde(rename = "set_slot_velocity")]
+    SetSlotVelocity,
+    #[serde(rename = "set_track_length")]
+    SetTrackLength,
+    #[serde(rename = "add_pattern")]
+    AddPattern,
+    #[serde(rename = "remove_pattern")]
+    RemovePattern
+}
 
-#[derive(Debug, serde::Serialize)]
-struct WebSocketMessage<T> {
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct WebSocketMessage {
     #[serde(rename = "type")]
     msg_type: MessageType,
-    payload: T,
+    payload: serde_json::Value,
 }
 pub struct WebController {
     addr: SocketAddr,
@@ -41,63 +60,61 @@ impl WebController {
         // Take ownership of the receiver, we can't clone it
         let state_rx_ch = std::mem::replace(&mut self.state_rx_ch, mpsc::channel().1);
         
-        // Create a dedicated thread for the WebSocket server
-        thread::spawn(move || {
-            // Create a runtime for the async code
-            let rt = tokio::runtime::Runtime::new().unwrap();
+        // Create a runtime for the async code
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        
+        rt.block_on(async move {
+            // Start the WebSocket server
+            let listener = TcpListener::bind(&addr).await.unwrap();
+            println!("WebSocket server listening on: {}", addr);
             
-            rt.block_on(async move {
-                // Start the WebSocket server
-                let listener = TcpListener::bind(&addr).await.unwrap();
-                println!("WebSocket server listening on: {}", addr);
-                
-                // Create a channel for state distribution in the async context
-                let (state_broadcaster_tx, _) = broadcast::channel::<State>(100);
-                let state_broadcaster_tx_clone = state_broadcaster_tx.clone();
-                
-                // Start a task to receive states from the sync channel and broadcast them
-                tokio::spawn(async move {
-                    loop {
-                        let state = state_rx_ch.recv();
-                        match state {
-                            Ok(state) => {
-                                if state_broadcaster_tx_clone.receiver_count() > 0 {
-                                    // Forward to all registered clients via broadcast channel
-                                    if let Err(_) = state_broadcaster_tx_clone.send(state) {
-                                        println!("Failed to broadcast");
-                                    }
+            // Create a channel for state distribution in the async context
+            let (state_broadcaster_tx, _) = broadcast::channel::<State>(100);
+            let state_broadcaster_tx_clone = state_broadcaster_tx.clone();
+            
+            // Start a task to receive states from the sync channel and broadcast them
+            tokio::spawn(async move {
+                loop {
+                    let state = state_rx_ch.recv();
+                    match state {
+                        Ok(state) => {
+                            if state_broadcaster_tx_clone.receiver_count() > 0 {
+                                // Forward to all registered clients via broadcast channel
+                                if let Err(_) = state_broadcaster_tx_clone.send(state) {
+                                    println!("Failed to broadcast");
                                 }
-                            },
-                            Err(e) => {
-                                println!("State receiver error: {:?}", e);
-                                break;
                             }
+                        },
+                        Err(e) => {
+                            println!("State receiver error: {:?}", e);
+                            break;
                         }
-                        tokio::task::yield_now().await;
                     }
-                });
-                
-                // Accept new WebSocket connections
-                while let Ok((stream, _)) = listener.accept().await {
-                    let peer = stream.peer_addr().unwrap();
-                    println!("Connection from: {}", peer);
-                    
-                    let state_broadcaster_rx = state_broadcaster_tx.subscribe();
-                    println!("Created new subscriber for {}", peer);
-                    
-                    // Send an initial message to confirm connection works
-                    tokio::spawn(async move {
-                        // Small delay to ensure connection is fully established
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        handle_connection(stream, state_broadcaster_rx).await;
-                    });
+                    tokio::task::yield_now().await;
                 }
             });
+            
+            // Accept new WebSocket connections
+            while let Ok((stream, _)) = listener.accept().await {
+                let peer = stream.peer_addr().unwrap();
+                println!("Connection from: {}", peer);
+                
+                let state_broadcaster_rx = state_broadcaster_tx.subscribe();
+                println!("Created new subscriber for {}", peer);
+                let cmd_tx_ch = self.cmd_tx_ch.clone();
+                // Send an initial message to confirm connection works
+                tokio::spawn(async move {
+                    // Small delay to ensure connection is fully established
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    handle_connection(stream, state_broadcaster_rx, cmd_tx_ch).await;
+                });
+            }
         });
     }
+    
 }
 
-async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<State>) {
+async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<State>, cmd_tx_ch: mpsc::Sender<Command>) {
     let peer = stream.peer_addr().unwrap();
     println!("Starting WebSocket handling for {}", peer);
     
@@ -121,7 +138,7 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                     Ok(state) => {
                         let message = WebSocketMessage {
                             msg_type: MessageType::StateUpdate,
-                            payload: state,
+                            payload: serde_json::to_value(state).unwrap(),
                         };
                         let message_json = serde_json::to_string(&message).unwrap();
                         if let Err(e) = ws_sender.send(Message::Text(message_json.into())).await {
@@ -153,6 +170,57 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                         // Handle any client messages here if needed
                         if let Message::Text(text) = msg {
                             println!("[{}] Received client message: {}", peer, text);
+                            let message: WebSocketMessage = serde_json::from_str(&text).unwrap();
+                            match message.payload.as_object() {
+                                Some(payload) => {
+                                    match message.msg_type {
+                                        MessageType::PlaySequencer => {
+                                            cmd_tx_ch.send(Command::PlaySequencer).unwrap();
+                                        },
+                                        MessageType::StopSequencer => {
+                                            cmd_tx_ch.send(Command::StopSequencer).unwrap();
+                                        },
+                                        MessageType::SetTempo => {
+                                            let tempo = payload.get("tempo").unwrap().as_i64().unwrap() as u8;
+                                            cmd_tx_ch.send(Command::SetTempo(tempo)).unwrap();
+                                        },
+                                        MessageType::SetPattern => {
+                                            let pattern_idx = payload.get("pattern_idx").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::SetPattern(pattern_idx)).unwrap();
+                                        },
+                                        MessageType::SetDivision => {
+                                            cmd_tx_ch.send(Command::SetDivision(Division::W)).unwrap();
+                                        },
+                                        MessageType::PlaySound => {
+                                            let track_idx = payload.get("trackIdx").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::PlaySound(track_idx, 127)).unwrap();
+                                        },
+                                        MessageType::SetSlotVelocity => {
+                                            let track_idx = payload.get("trackIdx").unwrap().as_i64().unwrap() as usize;
+                                            let slot_idx = payload.get("slotIdx").unwrap().as_i64().unwrap() as usize;
+                                            let velocity = payload.get("velocity").unwrap().as_i64().unwrap() as u8;
+                                            cmd_tx_ch.send(Command::SetSlotVelocity(track_idx, slot_idx, velocity)).unwrap();
+                                        },
+                                        MessageType::SetTrackLength => {
+                                            let track_idx = payload.get("track_idx").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::SetTrackLength(track_idx)).unwrap();
+                                        },
+                                        MessageType::AddPattern => {
+                                            cmd_tx_ch.send(Command::AddPattern).unwrap();
+                                        },
+                                        MessageType::RemovePattern => {
+                                            let pattern_idx = payload.get("pattern_idx").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::RemovePattern(pattern_idx)).unwrap();
+                                        },
+                                        _ => {
+                                            println!("[{}] Received unknown message: {}", peer, &text);
+                                        }
+                                    }
+                                },
+                                None => {
+                                    println!("[{}] Received bad message payload: {}", peer, message.payload);
+                                }
+                            }
                         }
                     },
                     Some(Err(e)) => {

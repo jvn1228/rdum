@@ -19,15 +19,18 @@ export interface DrumMachineState {
   default_len: number; // Added to match Rust struct
   latency?: any; // Added to match Rust struct, using any type for Duration
   last_cmd?: any; // Added to match Rust struct, using any type for Command
+  pattern_len: number;
+  pattern_idx: number;
+  pattern_name: string;
 }
 
 export enum MessageType {
   STATE_UPDATE = 'state_update',
-  TOGGLE_PAD = 'toggle_pad',
+  SET_SLOT_VELOCITY = 'set_slot_velocity',
   CHANGE_PATTERN = 'change_pattern',
-  PLAY = 'play',
-  STOP = 'stop',
-  CHANGE_TEMPO = 'change_tempo',
+  PLAY_SEQUENCER = 'play_sequencer',
+  STOP_SEQUENCER = 'stop_sequencer',
+  SET_TEMPO = 'set_tempo',
 }
 
 export interface WebSocketMessage {
@@ -36,10 +39,10 @@ export interface WebSocketMessage {
 }
 
 export interface TogglePadPayload {
-  patternId: number;
-  trackId: number;
-  slotIndex: number;
-  value: boolean;
+  patternIdx: number;
+  trackIdx: number;
+  slotIdx: number;
+  velocity: number;
 }
 
 export interface ChangePatternPayload {
