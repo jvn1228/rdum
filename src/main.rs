@@ -9,6 +9,7 @@ use std::error::Error;
 use sequencer::Command;
 use controller::cli::CLIController;
 use crossterm::{event::{self, Event, KeyCode}, terminal};
+use midir::MidiOutput;
 
 use sequencer::ChokeGrp;
 
@@ -27,6 +28,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut seq = sequencer::Sequencer::new(stream_handle);
     seq.play();
+    let midi_out = MidiOutput::new("Sequencer")?;
+    for port in midi_out.ports() {
+        println!("{}", port.id());
+    }
+    let port = midi_out.find_port_by_id("1813427005".to_string()).unwrap();
+    seq.connect_midi(port).unwrap();
 
     let seq_state_rx = seq.get_state_rx();
     let seq_cmd_tx = seq.get_command_tx();

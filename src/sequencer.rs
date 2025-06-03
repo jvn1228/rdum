@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
 use std::thread::yield_now;
+use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection, ConnectError};
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum Command {
@@ -249,7 +250,8 @@ pub struct Props {
     division: u8,
     playing: bool,
     command_rx_ch: mpsc::Receiver<Command>,
-    last_cmd: Command
+    last_cmd: Command,
+    pub midi_conn: Option<Arc<MidiOutputConnection>>,
 }
 
 impl Props {
@@ -437,7 +439,8 @@ impl Sequencer {
                 division: 4,
                 playing: false,
                 command_rx_ch: command_rx,
-                last_cmd: Command::Unspecified
+                last_cmd: Command::Unspecified,
+                midi_conn: None,
             }),
             stream,
             latency: Duration::ZERO,
@@ -462,6 +465,19 @@ impl Sequencer {
 
     pub fn stop(&mut self) {
         self.props.disable_play();
+    }
+
+    // Starts an active midi connection to the specified port
+    /// 
+    /// I've not yet quite figured out how to share MidiOutput so I'm just
+    /// persisting the connection, which should accomplish what we need
+    pub fn connect_midi(&mut self, port: MidiOutputPort) -> Result<(), Box<dyn Error>> {
+        let midi_output = MidiOutput::new("Sequencer")?;
+        let conn = midi_output.connect(&port, "Sequencer")?;
+        self.props.with_lock(|props| {
+            props.midi_conn = Some(Arc::new(conn));
+        });
+        Ok(())
     }
 
     /// Adds an empty track to the sequencer at the current pattern
@@ -505,10 +521,10 @@ impl Sequencer {
         let playing = self.props.with_lock(|props| { props.playing });
         if playing {
             let start = Instant::now();
-            // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
-            // and then in fact we might have to move that tracking to the track
-            if self.pulse_idx % (self.ppb / self.props.division()) == 0 {
-                self.props.with_lock(|props| {
+            self.props.with_lock(|props| {
+                // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
+                // and then in fact we might have to move that tracking to the track
+                if self.pulse_idx % (self.ppb / props.division) == 0 {
                     let mut triggered_idxs: Vec<usize> = vec![];
                     let pattern = &mut props.patterns[props.pattern_idx];
                     let tracks = &mut pattern.tracks;
@@ -530,11 +546,22 @@ impl Sequencer {
                             tracks[i].sink.skip_one();
                         }
                     }
-                })
-            }
+                }
+
+                // if the ppb cycle has reset, send a start signal
+                // to sync devices (clock is just for tempo)
+                if let Some(midi_conn) = &mut props.midi_conn {
+                    let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
+                    if self.pulse_idx % self.ppb == 0 {
+                        // start
+                        conn.send(&[0xFA]).unwrap();
+                    }
+                    // clock
+                    conn.send(&[0xF8]).unwrap();
+                }
+            });
             self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
-            
-            // to do send midi clk msg
+
             self.set_latency(Instant::now().duration_since(start));
 
         } else if self.pulse_idx != 0 {
