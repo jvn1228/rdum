@@ -31,6 +31,9 @@ export enum MessageType {
   PLAY_SEQUENCER = 'play_sequencer',
   STOP_SEQUENCER = 'stop_sequencer',
   SET_TEMPO = 'set_tempo',
+  ADD_PATTERN = 'add_pattern',
+  REMOVE_PATTERN = 'remove_pattern',
+  SELECT_PATTERN = 'select_pattern',
 }
 
 export interface WebSocketMessage {
@@ -51,4 +54,8 @@ export interface ChangePatternPayload {
 
 export interface ChangeTempoPayload {
   tempo: number;
+}
+
+export interface SelectPatternPayload {
+  patternId: number;
 }

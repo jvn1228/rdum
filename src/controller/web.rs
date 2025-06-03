@@ -31,7 +31,9 @@ enum MessageType {
     #[serde(rename = "add_pattern")]
     AddPattern,
     #[serde(rename = "remove_pattern")]
-    RemovePattern
+    RemovePattern,
+    #[serde(rename = "select_pattern")]
+    SelectPattern,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -209,8 +211,12 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                                             cmd_tx_ch.send(Command::AddPattern).unwrap();
                                         },
                                         MessageType::RemovePattern => {
-                                            let pattern_idx = payload.get("pattern_idx").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::RemovePattern(pattern_idx)).unwrap();
+                                            let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::RemovePattern(pattern_id)).unwrap();
+                                        },
+                                        MessageType::SelectPattern => {
+                                            let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::SelectPattern(pattern_id)).unwrap();
                                         },
                                         _ => {
                                             println!("[{}] Received unknown message: {}", peer, &text);

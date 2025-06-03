@@ -147,9 +147,11 @@ export class DrumMachineApp extends LitElement {
           </div>
           <div class="pattern-selector-container glass-card">
             <pattern-selector
-              .patterns={[{ id: 1, name: 'Pattern 1', tracks: [] }]}
-              .currentPatternId=${this.currentPatternId}
+              .patternName=${currentPattern}
+              .patternLen=${this.drumState.pattern_len}
+              .currentPatternId=${this.drumState.pattern_id}
               @pattern-selected=${this.handlePatternSelected}
+              @add-pattern=${this.handleAddPattern}
             ></pattern-selector>
           </div>
           <div class="transport-container glass-card">
@@ -163,12 +165,12 @@ export class DrumMachineApp extends LitElement {
           </div>
           
           <div class="tracks-container glass-card">
-            <div class="tracks-title">Pattern: ${currentPattern?.name || 'None'}</div>
+            <div class="tracks-title">Pattern: ${currentPattern || 'None'}</div>
             <div class="drum-grid-container">
-              ${currentPattern?.tracks.map((track, idx) => html`
+              ${this.drumState.trks.map((track, idx) => html`
                 <drum-track
                   .track=${track}
-                  .trkIdx=${idx}
+                  .trkId=${idx}
                   @track-pad-toggled=${this.handlePadToggled}
                 ></drum-track>
               `)}
@@ -179,13 +181,8 @@ export class DrumMachineApp extends LitElement {
     `;
   }
 
-  getCurrentPattern(): Pattern | undefined {
-    return {
-      id: 1,
-      name: "Pattern 1",
-      tracks: this.drumState.trks
-    }
-    // return this.drumState.patterns.find(p => p.id === this.drumState.currentPatternId);
+  getCurrentPattern(): string | undefined {
+    return this.drumState.pattern_name;
   }
 
   handleStateUpdate(state: DrumMachineState) {
@@ -194,7 +191,11 @@ export class DrumMachineApp extends LitElement {
 
   handlePatternSelected(e: CustomEvent) {
     const { patternId } = e.detail;
-    this.webSocketService.changePattern(patternId);
+    this.webSocketService.selectPattern(patternId);
+  }
+
+  handleAddPattern() {
+    this.webSocketService.addPattern();
   }
 
   handlePlay() {

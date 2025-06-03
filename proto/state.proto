@@ -38,6 +38,7 @@ enum Command {
   COMMAND_SET_TRACK_LENGTH = 8;
   COMMAND_ADD_PATTERN = 9;
   COMMAND_REMOVE_PATTERN = 10;
+  COMMAND_SELECT_PATTERN = 11;
 }
 
 // CommandMessage contains both the command type and any associated arguments

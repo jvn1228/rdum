@@ -22,6 +22,7 @@ pub enum Command {
     // Sequencer program commands
     AddPattern,
     RemovePattern(usize),
+    SelectPattern(usize),
     Unspecified,
 }
 
@@ -54,7 +55,7 @@ pub struct TrackState {
 #[derive(Debug, Clone, Default, serde::Serialize)]
 /// Subset of sequencer state that be broadcast on a channel
 /// 
-/// Refer to the Props struct to see more descriptors
+/// Refer to the Context struct to see more descriptors
 pub struct State {
     pub tempo: u8,
     pub trks: Vec<TrackState>,
@@ -131,6 +132,7 @@ impl Source for BufferedSample {
     }
 }
 
+#[derive(Clone)]
 pub struct Slot {
     pub velocity: u8,
 }
@@ -140,6 +142,7 @@ pub struct Slot {
 /// It has a vector of velocities that determine when a sample is triggered, an audio sink to queue it,
 /// and a reference to the sample itself
 /// Tracks also can have their own length, leading to interesting pattern variations
+#[derive(Clone)]
 pub struct Track {
     pub slots: Vec<Slot>,
     pub sample: Arc<BufferedSample>,
@@ -166,10 +169,17 @@ impl Track {
             name
         }
     }
+
+    pub fn reset_slots(&mut self) {
+        self.slots.iter_mut().for_each(|slot| {
+            slot.velocity = 0;
+        });
+    }
 }
 
 /// ChokeGrp allows defining tracks that stop other tracks in
 /// the same choke group when triggered
+#[derive(Clone)]
 pub struct ChokeGrp {
     pub track_ids: Vec<usize>,
 }
@@ -205,7 +215,8 @@ impl ChokeGrp {
 
 /// `Pattern` is a collection of tracks
 /// 
-/// To do: this probably needs to wrap as a props handle as well
+/// To do: this probably needs to wrap as a Context handle as well
+#[derive(Clone)]
 pub struct Pattern {
     pub tracks: Vec<Track>,
     pub choke_grps: Vec<ChokeGrp>,
@@ -229,6 +240,12 @@ impl Pattern {
         triggered_ids
             .iter()
             .any(|&x| self.get_choked_ids(x).contains(&track_id))
+    }
+
+    pub fn zero_all_tracks(&mut self) {
+        self.tracks.iter_mut().for_each(|track| {
+            track.reset_slots();
+        });
     }
 }
 
@@ -264,10 +281,18 @@ impl Context {
 
     pub fn enable_play(&mut self) {
         self.playing = true;
+        if let Some(midi_conn) = &mut self.midi_conn {
+            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
+            conn.send(&[0xF8]).unwrap();
+        }
     }
 
     pub fn disable_play(&mut self) {
         self.playing = false;
+        if let Some(midi_conn) = &mut self.midi_conn {
+            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
+            conn.send(&[0xF9]).unwrap();
+        }
     }
 
     pub fn set_division(&mut self, division: Division) {
@@ -288,9 +313,9 @@ pub struct ContextHandle {
 }
 
 impl ContextHandle {
-    pub fn new(props: Context) -> Self {
+    pub fn new(ctx: Context) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(props))
+            inner: Arc::new(Mutex::new(ctx))
         }
     }
 
@@ -304,44 +329,40 @@ impl ContextHandle {
         result
     }
 
-    // we should put these methods on the props struct and just wrap for handler maybe?
+    // we should put these methods on the ctx struct and just wrap for handler maybe?
     // so redundant though....
     pub fn set_tempo(&self, t: u8) {
-        self.with_lock(|props| {
-            props.set_tempo(t)
+        self.with_lock(|ctx| {
+            ctx.set_tempo(t)
         })
     }
 
     pub fn division(&self) -> u8 {
-        self.with_lock(|props| { props.division })
+        self.with_lock(|ctx| { ctx.division })
     }
 
     pub fn set_division(&self, division: Division) {
-        self.with_lock(|props| {
-            props.set_division(division);
+        self.with_lock(|ctx| {
+            ctx.set_division(division);
         })
     }
 
     pub fn enable_play(&mut self) {
-        self.with_lock(|props| {
-            props.enable_play();
+        self.with_lock(|ctx| {
+            ctx.enable_play();
         })
     }
 
     pub fn disable_play(&mut self) {
-        self.with_lock(|props| {
-            props.disable_play();
+        self.with_lock(|ctx| {
+            ctx.disable_play();
         })
     }
 }
 
-/// Struct that wraps PropsHandle for a specific track
+/// Struct that wraps ContextHandle for a specific track
 /// 
-///  This is a little clunky but because sequencer Props are
-/// defined as the user-modifiable properties, which includes tracks,
-/// we have to use the PropsHandle wrapper to access the tracks
-/// TrackHandle serves as a specialized PropsHandle that is just
-/// for modifying tracks. But, clunkily, it's a wrapper of a wrapper
+/// Clunkily, it's a wrapper of a wrapper
 /// One day maybe aspiring rappers will appreciate this wrapper wrapper.
 pub struct TrackHandle {
     inner: ContextHandle,
@@ -349,9 +370,9 @@ pub struct TrackHandle {
 }
 
 impl TrackHandle {
-    fn new(props_handle: ContextHandle, id: u8) -> Self {
+    fn new(ctx_handle: ContextHandle, id: u8) -> Self {
         Self {
-            inner: props_handle,
+            inner: ctx_handle,
             id
         }
     }
@@ -360,9 +381,9 @@ impl TrackHandle {
     where
         F: FnOnce(&mut Track) -> T,
     {
-        self.inner.with_lock(|props| {
-            let t = &mut props
-                .patterns[props.pattern_id]
+        self.inner.with_lock(|ctx| {
+            let t = &mut ctx
+                .patterns[ctx.pattern_id]
                 .tracks[self.id as usize];
             func(t)
         })
@@ -476,8 +497,8 @@ impl Sequencer {
     pub fn connect_midi(&mut self, port: MidiOutputPort) -> Result<(), Box<dyn Error>> {
         let midi_output = MidiOutput::new("Sequencer")?;
         let conn = midi_output.connect(&port, "Sequencer")?;
-        self.ctx.with_lock(|props| {
-            props.midi_conn = Some(Arc::new(conn));
+        self.ctx.with_lock(|ctx| {
+            ctx.midi_conn = Some(Arc::new(conn));
         });
         Ok(())
     }
@@ -493,9 +514,9 @@ impl Sequencer {
         let sink = Sink::try_new(&self.stream)?;
         let sink = Arc::new(sink);
         sink.play();
-        self.ctx.with_lock(|props| {
-            let tracks = &mut props.patterns[props.pattern_id].tracks;
-            tracks.push(Track::new(name, props.default_len, sample, sink));
+        self.ctx.with_lock(|ctx| {
+            let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
+            tracks.push(Track::new(name, ctx.default_len, sample, sink));
             Ok(TrackHandle::new(self.ctx.clone(), tracks.len() as u8 - 1))
         })
     }
@@ -513,8 +534,8 @@ impl Sequencer {
 
     /// Resets all track indices to 0
     fn reset_playheads(&mut self) {
-        self.ctx.with_lock(|props| {
-            let tracks = &mut props.patterns[props.pattern_id].tracks;
+        self.ctx.with_lock(|ctx| {
+            let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
             for t in tracks {
                 t.idx = 0;
             }
@@ -523,15 +544,15 @@ impl Sequencer {
 
     /// The VIP function. Plays tracks, sends state, updates latency
     fn play_next(&mut self) {
-        let playing = self.ctx.with_lock(|props| { props.playing });
+        let playing = self.ctx.with_lock(|ctx| { ctx.playing });
         if playing {
             let start = Instant::now();
-            self.ctx.with_lock(|props| {
+            self.ctx.with_lock(|ctx| {
                 // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
                 // and then in fact we might have to move that tracking to the track
-                if self.pulse_idx % (self.ppb / props.division) == 0 {
+                if self.pulse_idx % (self.ppb / ctx.division) == 0 {
                     let mut triggered_ids: Vec<usize> = vec![];
-                    let pattern = &mut props.patterns[props.pattern_id];
+                    let pattern = &mut ctx.patterns[ctx.pattern_id];
                     let tracks = &mut pattern.tracks;
                     for (i, t) in tracks.into_iter().enumerate() {
                         let vel = &mut t.slots[t.idx].velocity;
@@ -544,7 +565,7 @@ impl Sequencer {
                     }
                     
                     // Redefine as immutable to prevent triggering borrow checker
-                    let pattern = &props.patterns[props.pattern_id];
+                    let pattern = &ctx.patterns[ctx.pattern_id];
                     let tracks = &pattern.tracks;
                     for i in 0..tracks.len() {
                         if pattern.is_trk_choked(&triggered_ids, i) {
@@ -555,12 +576,12 @@ impl Sequencer {
 
                 // if the ppb cycle has reset, send a start signal
                 // to sync devices (clock is just for tempo)
-                if let Some(midi_conn) = &mut props.midi_conn {
+                if let Some(midi_conn) = &mut ctx.midi_conn {
                     let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-                    if self.pulse_idx % self.ppb == 0 {
-                        // start
-                        conn.send(&[0xFA]).unwrap();
-                    }
+                    // if self.pulse_idx % self.ppb == 0 {
+                    //     // start
+                    //     conn.send(&[0xFA]).unwrap();
+                    // }
                     // clock
                     conn.send(&[0xF8]).unwrap();
                 }
@@ -580,12 +601,12 @@ impl Sequencer {
     /// Attempts to keep timing tight by subtracting processing time from overall wait between beats
     fn set_latency(&mut self, t: Duration) {
         self.latency = Duration::from_nanos(((self.latency + t).as_nanos() / 2) as u64);
-        self.ctx.with_lock(|props| {
-            self.sleep_interval = props.pulse_interval - props.pulse_interval.min(self.latency)
+        self.ctx.with_lock(|ctx| {
+            self.sleep_interval = ctx.pulse_interval - ctx.pulse_interval.min(self.latency)
         })
     }
 
-    /// Uses props handle to set time division (4/4 time is quarter division, 4/8 is eighth, etc)
+    /// Uses ctx handle to set time division (4/4 time is quarter division, 4/8 is eighth, etc)
     pub fn set_division(&mut self, division: Division) {
         self.ctx.set_division(division);
     }
@@ -607,9 +628,9 @@ impl Sequencer {
 
     /// Transmits a subset of internal sequencer state
     fn tx_state(&self) {
-        self.ctx.with_lock(|props| {
-            let trks: Vec<TrackState> = props
-                .patterns[props.pattern_id]
+        self.ctx.with_lock(|ctx| {
+            let trks: Vec<TrackState> = ctx
+                .patterns[ctx.pattern_id]
                 .tracks
                 .iter()
                 .map(|t| {
@@ -624,16 +645,16 @@ impl Sequencer {
 
             for tx in &self.state_tx_ch {
                 let _ = tx.send(State {
-                    tempo: props.tempo,
+                    tempo: ctx.tempo,
                     trks: trks.clone(),
-                    division: props.division,
-                    default_len: props.default_len,
+                    division: ctx.division,
+                    default_len: ctx.default_len,
                     latency: self.latency,
-                    last_cmd: props.last_cmd,
-                    playing: props.playing,
-                    pattern_id: props.pattern_id,
-                    pattern_len: props.patterns.len(),
-                    pattern_name: props.patterns[props.pattern_id].name.clone(),
+                    last_cmd: ctx.last_cmd,
+                    playing: ctx.playing,
+                    pattern_id: ctx.pattern_id,
+                    pattern_len: ctx.patterns.len(),
+                    pattern_name: ctx.patterns[ctx.pattern_id].name.clone(),
                 });
             }
         })
@@ -642,35 +663,51 @@ impl Sequencer {
     /// Receives commands and modifies sequencer state accordingly
     /// 
     /// You can run this in its own thread. It does not own the sequencer
-    /// instance hence we use a props handle to modify the sequencer state
+    /// instance hence we use a ctx handle to modify the sequencer state
     /// There's a slight weirdness with this paradigm in that one shot
     /// sample playing will directly add to the track playback sink, instead
     /// of modifying a property. Maybe tracks are not fully definable as properties
     /// but we gain functionality treating them as such
     pub fn run_command_loop(ctx: ContextHandle) {
         loop {
-            ctx.with_lock(|props| {
-                if let Ok(cmd) = props.command_rx_ch.try_recv() {
-                    props.last_cmd = cmd;
+            ctx.with_lock(|ctx| {
+                if let Ok(cmd) = ctx.command_rx_ch.try_recv() {
+                    ctx.last_cmd = cmd;
                     match cmd {
-                        Command::SetTempo(bpm) => props.set_tempo(bpm),
+                        Command::SetTempo(bpm) => ctx.set_tempo(bpm),
                         Command::PlaySound(trk_id, vel) => (|trk_id, vel| {
-                                let trk: &mut Track = &mut props.patterns[props.pattern_id].tracks[trk_id];
+                                let trk: &mut Track = &mut ctx.patterns[ctx.pattern_id].tracks[trk_id];
                                 let mut vel = vel;
                                 let v = &mut vel;
                                 Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
-                                let trks = &props.patterns[props.pattern_id].tracks;
+                                let trks = &ctx.patterns[ctx.pattern_id].tracks;
                                 for i in 0..trks.len() {
-                                    if props.patterns[props.pattern_id].is_trk_choked(&vec![trk_id], i) {
+                                    if ctx.patterns[ctx.pattern_id].is_trk_choked(&vec![trk_id], i) {
                                         trks[i].sink.skip_one();
                                     }
                                 }
                             })(trk_id, vel),
-                        Command::PlaySequencer => props.enable_play(),
-                        Command::StopSequencer => props.disable_play(),
-                        Command::SetDivision(div) => props.set_division(div),
+                        Command::PlaySequencer => ctx.enable_play(),
+                        Command::StopSequencer => ctx.disable_play(),
+                        Command::SetDivision(div) => ctx.set_division(div),
                         Command::SetSlotVelocity(trk, slot, vel) => {
-                            props.patterns[props.pattern_id].tracks[trk].slots[slot].velocity = vel;
+                            ctx.patterns[ctx.pattern_id].tracks[trk].slots[slot].velocity = vel;
+                        },
+                        // Adding a new pattern will duplicate the current pattern
+                        // tracks and clear the slots
+                        Command::AddPattern => {
+                            ctx.patterns.push(ctx.patterns[ctx.pattern_id].clone());
+                            ctx.pattern_id = ctx.patterns.len() - 1;
+                            ctx.patterns[ctx.pattern_id].zero_all_tracks();
+                        },
+                        Command::RemovePattern(idx) => {
+                            ctx.patterns.remove(idx);
+                            if idx < ctx.pattern_id {
+                                ctx.pattern_id -= 1;
+                            }
+                        },
+                        Command::SelectPattern(idx) => {
+                            ctx.pattern_id = idx;
                         },
                         _ => ()
                     }

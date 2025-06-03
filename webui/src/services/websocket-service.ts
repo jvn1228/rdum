@@ -1,4 +1,4 @@
-import { MessageType, WebSocketMessage, TogglePadPayload, ChangePatternPayload, ChangeTempoPayload, DrumMachineState } from '../models/types';
+import { MessageType, WebSocketMessage, TogglePadPayload, SelectPatternPayload, ChangeTempoPayload, DrumMachineState } from '../models/types';
 
 export class WebSocketService {
   private socket: WebSocket | null = null;
@@ -84,11 +84,11 @@ export class WebSocketService {
     this.sendMessage(MessageType.SET_SLOT_VELOCITY, payload);
   }
 
-  public changePattern(patternId: number): void {
-    const payload: ChangePatternPayload = {
+  public selectPattern(patternId: number): void {
+    const payload: SelectPatternPayload = {
       patternId
     };
-    this.sendMessage(MessageType.CHANGE_PATTERN, payload);
+    this.sendMessage(MessageType.SELECT_PATTERN, payload);
   }
 
   public play(): void {
@@ -104,6 +104,10 @@ export class WebSocketService {
       tempo
     };
     this.sendMessage(MessageType.SET_TEMPO, payload);
+  }
+
+  public addPattern(): void {
+    this.sendMessage(MessageType.ADD_PATTERN, {});
   }
 
   private sendMessage(type: MessageType, payload: any): void {
