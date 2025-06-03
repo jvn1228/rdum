@@ -35,7 +35,7 @@ pub fn serialize_state(state: &State) -> Result<Vec<u8>, Box<dyn Error>> {
             nanos: state.latency.subsec_nanos() as i32,
         }),
         playing: state.playing,
-        pattern_idx: state.pattern_idx as u64,
+        pattern_id: state.pattern_id as u64,
         pattern_len: state.pattern_len as u64,
         pattern_name: state.pattern_name.clone(),
     };

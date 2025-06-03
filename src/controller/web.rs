@@ -192,11 +192,11 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                                             cmd_tx_ch.send(Command::SetDivision(Division::W)).unwrap();
                                         },
                                         MessageType::PlaySound => {
-                                            let track_idx = payload.get("trackIdx").unwrap().as_i64().unwrap() as usize;
+                                            let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
                                             cmd_tx_ch.send(Command::PlaySound(track_idx, 127)).unwrap();
                                         },
                                         MessageType::SetSlotVelocity => {
-                                            let track_idx = payload.get("trackIdx").unwrap().as_i64().unwrap() as usize;
+                                            let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
                                             let slot_idx = payload.get("slotIdx").unwrap().as_i64().unwrap() as usize;
                                             let velocity = payload.get("velocity").unwrap().as_i64().unwrap() as u8;
                                             cmd_tx_ch.send(Command::SetSlotVelocity(track_idx, slot_idx, velocity)).unwrap();

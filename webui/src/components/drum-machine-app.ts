@@ -19,8 +19,8 @@ export class DrumMachineApp extends LitElement {
     playing: false,
     tempo: 120,
     division: 16,  // Default to 16th notes
-    pattern_len: 16,       // Default pattern length
-    pattern_idx: 0,
+    pattern_len: 1,
+    pattern_id: 0,
     pattern_name: "Pattern 1",
     latency: 0,
     default_len: 16,
@@ -211,10 +211,10 @@ export class DrumMachineApp extends LitElement {
   }
 
   handlePadToggled(e: CustomEvent) {
-    const { trackIdx, slotIdx, velocity } = e.detail;
+    const { trackId, slotIdx, velocity } = e.detail;
     this.webSocketService.togglePad(
       this.currentPatternId, // Use the fixed pattern ID
-      trackIdx,
+      trackId,
       slotIdx,
       velocity
     );

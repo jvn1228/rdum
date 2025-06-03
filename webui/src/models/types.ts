@@ -20,7 +20,7 @@ export interface DrumMachineState {
   latency?: any; // Added to match Rust struct, using any type for Duration
   last_cmd?: any; // Added to match Rust struct, using any type for Command
   pattern_len: number;
-  pattern_idx: number;
+  pattern_id: number;
   pattern_name: string;
 }
 
@@ -39,8 +39,8 @@ export interface WebSocketMessage {
 }
 
 export interface TogglePadPayload {
-  patternIdx: number;
-  trackIdx: number;
+  patternId: number;
+  trackId: number;
   slotIdx: number;
   velocity: number;
 }

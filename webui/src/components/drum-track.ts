@@ -6,7 +6,7 @@ import './drum-pad';
 @customElement('drum-track')
 export class DrumTrack extends LitElement {
   @property({ type: Object }) track!: Track;
-  @property({ type: Number }) trkIdx = -1;
+  @property({ type: Number }) trkId = -1;
 
   static styles = css`
     :host {
@@ -65,7 +65,7 @@ export class DrumTrack extends LitElement {
   _handlePadToggled(index: number, value: boolean) {
     this.dispatchEvent(new CustomEvent('track-pad-toggled', {
       detail: {
-        trackIdx: this.trkIdx,
+        trackId: this.trkId,
         slotIdx: index,
         velocity: value ? 127 : 0
       },

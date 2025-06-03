@@ -58,9 +58,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let trk_open_hat = seq.add_track("Open Hat".to_string(), Arc::clone(&sample_open_hat))?;
     trk_open_hat.set_slots_vel(&[0, 0, 0, 0, 0, 0, 0, 127]);         
 
-    let seq_props_handle = seq.props.clone();
+    let seq_ctx_handle = seq.ctx.clone();
 
-    seq_props_handle.with_lock(|props| {
+    seq_ctx_handle.with_lock(|props| {
         props.patterns[0].choke_grps.push(ChokeGrp::new(vec![0, 3]));
     });
 
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         sequencer::Sequencer::run_sound_loop(seq);
     });
     thread::spawn(move || {
-        sequencer::Sequencer::run_command_loop(seq_props_handle);
+        sequencer::Sequencer::run_command_loop(seq_ctx_handle);
     });                                                                                            
                                                                                                                            
     // let mut terminal = ratatui::init();

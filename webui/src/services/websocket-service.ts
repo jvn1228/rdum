@@ -74,10 +74,10 @@ export class WebSocketService {
     }
   }
 
-  public togglePad(patternIdx: number, trackIdx: number, slotIdx: number, velocity: number): void {
+  public togglePad(patternId: number, trackId: number, slotIdx: number, velocity: number): void {
     const payload: TogglePadPayload = {
-      patternIdx,
-      trackIdx,
+      patternId,
+      trackId,
       slotIdx,
       velocity
     };
