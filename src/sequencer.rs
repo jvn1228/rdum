@@ -277,13 +277,21 @@ impl Context {
     fn set_tempo(&mut self, bpm: u8) {
         self.tempo = bpm;
         self.pulse_interval = Duration::from_secs_f32(5.0 / 2.0 / bpm as f32);
+        // Resynchronize MIDI devices when tempo changes
+        if let Some(midi_conn) = &mut self.midi_conn {
+            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
+            // Send MIDI Stop
+            conn.send(&[0xFC]).unwrap();
+            // Send MIDI Continue to resume from current position
+            conn.send(&[0xFB]).unwrap();
+        }
     }
 
     pub fn enable_play(&mut self) {
         self.playing = true;
         if let Some(midi_conn) = &mut self.midi_conn {
             let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-            conn.send(&[0xF8]).unwrap();
+            conn.send(&[0xFA]).unwrap();
         }
     }
 
@@ -291,7 +299,7 @@ impl Context {
         self.playing = false;
         if let Some(midi_conn) = &mut self.midi_conn {
             let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-            conn.send(&[0xF9]).unwrap();
+            conn.send(&[0xFC]).unwrap();
         }
     }
 
@@ -440,6 +448,7 @@ pub struct Sequencer {
     /// Multi producer single consumer means we can
     /// have multiple controllers (producers) on the sequencer (consumer) at once
     command_tx_ch: mpsc::Sender<Command>,
+    sleeper: spin_sleep::SpinSleeper,
 }
 
 // Maybe tracks should have independent lengths?
@@ -473,7 +482,8 @@ impl Sequencer {
             ppb: 24*4,
             pulse_idx: 0,
             state_tx_ch: vec![],
-            command_tx_ch: command_tx
+            command_tx_ch: command_tx,
+            sleeper: spin_sleep::SpinSleeper::new(1_012_550_000).with_spin_strategy(spin_sleep::SpinStrategy::SpinLoopHint)
         }
     }
 
@@ -721,7 +731,7 @@ impl Sequencer {
 
     /// Sleep between pulses
     fn sleep(&self) {
-        spin_sleep::sleep(self.sleep_interval);
+        self.sleeper.sleep(self.sleep_interval);
     }
 
     /// Runs the sequencer
@@ -729,7 +739,7 @@ impl Sequencer {
         loop {
             seq.play_next();
             seq.sleep();
-            yield_now();
+            // yield_now();
         }
     }
 

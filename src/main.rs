@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let stream_handle = Arc::new(stream_handle);                                                                                                                                                                                             
 
     let mut seq = sequencer::Sequencer::new(stream_handle);
-    seq.play();
+
     let midi_out = MidiOutput::new("Sequencer")?;
     for port in midi_out.ports() {
         println!("{}", port.id());
@@ -73,6 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         zmq_ctrl.run();
     });
 
+    seq.play();
     thread::spawn(move || {
         sequencer::Sequencer::run_sound_loop(seq);
     });
