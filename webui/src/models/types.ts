@@ -22,6 +22,7 @@ export interface DrumMachineState {
   pattern_len: number;
   pattern_id: number;
   pattern_name: string;
+  queued_pattern_id: number;
 }
 
 export enum MessageType {

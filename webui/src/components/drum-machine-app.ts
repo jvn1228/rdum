@@ -24,6 +24,7 @@ export class DrumMachineApp extends LitElement {
     pattern_name: "Pattern 1",
     latency: 0,
     default_len: 16,
+    queued_pattern_id: 0,
   };
 
   // Since the backend doesn't use pattern IDs, we'll use a fixed value
@@ -150,6 +151,7 @@ export class DrumMachineApp extends LitElement {
               .patternName=${currentPattern}
               .patternLen=${this.drumState.pattern_len}
               .currentPatternId=${this.drumState.pattern_id}
+              .queuedPatternId=${this.drumState.queued_pattern_id}
               @pattern-selected=${this.handlePatternSelected}
               @add-pattern=${this.handleAddPattern}
             ></pattern-selector>

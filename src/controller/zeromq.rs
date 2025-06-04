@@ -38,6 +38,7 @@ pub fn serialize_state(state: &State) -> Result<Vec<u8>, Box<dyn Error>> {
         pattern_id: state.pattern_id as u64,
         pattern_len: state.pattern_len as u64,
         pattern_name: state.pattern_name.clone(),
+        queued_pattern_id: state.queued_pattern_id as u64,
     };
 
     // Serialize the Protocol Buffer message

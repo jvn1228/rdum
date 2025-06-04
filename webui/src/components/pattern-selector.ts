@@ -7,31 +7,52 @@ import '@material/web/button/outlined-button.js';
 export class PatternSelector extends LitElement {
   @property({ type: Number }) patternLen = 0;
   @property({ type: Number }) currentPatternId = 0;
+  @property({ type: Number }) queuedPatternId = 0;
   @property({ type: String }) patternName = '';
 
   static styles = css`
     :host {
       display: block;
+      padding: 16px;
+      background-color: var(--surface-color);
+      border-radius: 8px;
+      box-shadow: 0 2px 4px var(--shadow-color);
     }
-
-    .pattern-selector {
+    .selector-header {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 16px 0;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
     }
-
+    .pattern-name {
+      font-size: 1.2em;
+      font-weight: 500;
+    }
     .pattern-buttons {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-right: 16px;
+      margin-bottom: 1em;
+    }
+    @keyframes pulseEffect {
+      0% {
+        box-shadow: 0 0 0 0 rgba(var(--secondary-rgb, 3, 218, 198), 0.7);
+        /* Using secondary-rgb from your main.css, or a fallback if not defined */
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(var(--secondary-rgb, 3, 218, 198), 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(var(--secondary-rgb, 3, 218, 198), 0);
+      }
     }
 
-    .pattern-info {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
+    md-filled-button.queued {
+      --md-filled-button-container-color: var(--secondary-color);
+      animation: pulseEffect 1s infinite;
+      /* If text contrast is an issue with secondary-color, uncomment and set appropriately:
+      --md-filled-button-label-text-color: var(--text-on-secondary-color); 
+      */
     }
   `;
 
@@ -41,18 +62,30 @@ export class PatternSelector extends LitElement {
         <div class="pattern-buttons">
           ${Array.from({ length: this.patternLen }, (_, i) => {
             const isSelected = i === this.currentPatternId;
-            return isSelected ? html`
-              <md-filled-button @click=${() => this._handlePatternSelect(i)}>
-                Pattern ${i + 1}
-              </md-filled-button>
-            ` : html`
-              <md-outlined-button @click=${() => this._handlePatternSelect(i)}>
-                Pattern ${i + 1}
-              </md-outlined-button>
-            `;
+            const isQueuedAndNotSelected = i === this.queuedPatternId && i !== this.currentPatternId;
+
+            if (isSelected) {
+              return html`
+                <md-filled-button class="pattern-button selected" @click=${() => this._handlePatternSelect(i)}>
+                  Pattern ${i + 1}
+                </md-filled-button>`;
+            } else if (isQueuedAndNotSelected) {
+              return html`
+                <md-filled-button class="pattern-button queued" @click=${() => this._handlePatternSelect(i)}>
+                  Pattern ${i + 1}
+                </md-filled-button>`;
+            } else {
+              return html`
+                <md-outlined-button class="pattern-button" @click=${() => this._handlePatternSelect(i)}>
+                  Pattern ${i + 1}
+                </md-outlined-button>`;
+            }
           })}
         </div>
-        <md-outlined-button @click=${() => this._handleAddPattern()}>Add Pattern</md-outlined-button>
+        <md-filled-button @click=${() => this._handleAddPattern()}>
+          <md-icon slot="icon">add</md-icon>
+          Add Pattern
+        </md-filled-button>
       </div>
     `;
   }

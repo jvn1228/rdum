@@ -6,6 +6,9 @@ export class DrumPad extends LitElement {
   @property({ type: Number, reflect: true }) vel = 0;
   @property({ type: Boolean, reflect: true }) trigger = false;
 
+  private initialVelOnAdjust = 0;
+  private pointerStartY = 0;
+
   static styles = css`
     :host {
       display: block;
@@ -39,23 +42,52 @@ export class DrumPad extends LitElement {
     };
     
     return html`
-      <button 
+      <button
         class=${Object.entries(classes)
           .filter(([_, value]) => value)
           .map(([key]) => key)
           .join(' ')}
-        @click=${this._handleClick}
+        @pointerdown=${this._handlePointerDown}
       >${this.vel}</button>
     `;
   }
 
-  _handleClick() {
-    this.vel = this.vel === 0 ? 127 : 0;
+  // Bound methods for window event listeners
+  private _boundHandlePointerMove = this._handlePointerMove.bind(this);
+  private _boundHandlePointerUp = this._handlePointerUp.bind(this);
+
+  _handlePointerDown(e: PointerEvent) {
+    // Prevent text selection/default drag behaviors if the button itself is clicked
+    e.preventDefault(); 
+
+    this.initialVelOnAdjust = this.vel;
+    this.pointerStartY = e.clientY;
+
+    // Capture pointer events on the window to handle dragging outside the element
+    window.addEventListener('pointermove', this._boundHandlePointerMove);
+    window.addEventListener('pointerup', this._boundHandlePointerUp);
+    window.addEventListener('pointercancel', this._boundHandlePointerUp); // Also handle cancel
+  }
+
+  _handlePointerMove(e: PointerEvent) {
+    const dy = Math.round(e.clientY - this.pointerStartY); // Positive dy if mouse moves down
+    // Velocity increases as mouse drags UP, decreases as mouse drags DOWN.
+    this.vel = Math.max(0, Math.min(127, this.initialVelOnAdjust - dy));
+  }
+
+  _handlePointerUp(e: PointerEvent) {
+    if (Math.abs(e.clientY - this.pointerStartY) < 2) {
+      this.vel = this.vel == 0 ? 127 : 0;
+    }
     this.dispatchEvent(new CustomEvent('pad-toggled', {
-      detail: { value: this.vel },
+      detail: { velocity: this.vel },
       bubbles: true,
       composed: true
     }));
+
+    window.removeEventListener('pointermove', this._boundHandlePointerMove);
+    window.removeEventListener('pointerup', this._boundHandlePointerUp);
+    window.removeEventListener('pointercancel', this._boundHandlePointerUp);
   }
 
   triggerAnimation() {

@@ -54,7 +54,7 @@ export class DrumTrack extends LitElement {
               <drum-pad 
                 vel=${vel}
                 ?trigger=${this.track.idx === idx}
-                @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(index, e.detail.value)}
+                @pad-toggled=${(e: CustomEvent) => this._handlePadToggled(index, e.detail.velocity)}
               ></drum-pad>`
           })}
         </div>
@@ -62,12 +62,12 @@ export class DrumTrack extends LitElement {
     `;
   }
 
-  _handlePadToggled(index: number, value: boolean) {
+  _handlePadToggled(index: number, velocity: number) {
     this.dispatchEvent(new CustomEvent('track-pad-toggled', {
       detail: {
         trackId: this.trkId,
         slotIdx: index,
-        velocity: value ? 127 : 0
+        velocity: velocity
       },
       bubbles: true,
       composed: true

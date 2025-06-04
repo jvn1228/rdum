@@ -67,6 +67,7 @@ pub struct State {
     pub pattern_id: usize,
     pub pattern_len: usize,
     pub pattern_name: String,
+    pub queued_pattern_id: usize,
 }
 
 #[derive(Clone)]
@@ -247,6 +248,12 @@ impl Pattern {
             track.reset_slots();
         });
     }
+
+    pub fn reset_playheads(&mut self) {
+        self.tracks.iter_mut().for_each(|track| {
+            track.idx = 0;
+        });
+    }
 }
 
 /// Struct that describes internal sequencer state that can be
@@ -254,6 +261,10 @@ impl Pattern {
 pub struct Context {
     pub patterns: Vec<Pattern>,
     pub pattern_id: usize,
+    // If there is no new pattern for queueing it should be
+    // the current pattern since the same pattern is queued
+    // for playing next
+    pub queued_pattern_id: usize,
     /// It's the default length of a new track, unit is beats
     pub default_len: usize,
     /// beats per minutes
@@ -277,14 +288,6 @@ impl Context {
     fn set_tempo(&mut self, bpm: u8) {
         self.tempo = bpm;
         self.pulse_interval = Duration::from_secs_f32(5.0 / 2.0 / bpm as f32);
-        // Resynchronize MIDI devices when tempo changes
-        if let Some(midi_conn) = &mut self.midi_conn {
-            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-            // Send MIDI Stop
-            conn.send(&[0xFC]).unwrap();
-            // Send MIDI Continue to resume from current position
-            conn.send(&[0xFB]).unwrap();
-        }
     }
 
     pub fn enable_play(&mut self) {
@@ -305,6 +308,10 @@ impl Context {
 
     pub fn set_division(&mut self, division: Division) {
         self.division = division as u8;
+    }
+
+    pub fn reset_playheads(&mut self) {
+        self.patterns[self.pattern_id].reset_playheads();
     }
 }
 
@@ -464,6 +471,7 @@ impl Sequencer {
                     name: "Pattern 1".to_string()
                 }],
                 pattern_id: 0,
+                queued_pattern_id: 0,
                 default_len: 8,
                 tempo: 120,
                 // corresponds to 120 bpm
@@ -542,22 +550,22 @@ impl Sequencer {
         }
     }
 
-    /// Resets all track indices to 0
-    fn reset_playheads(&mut self) {
-        self.ctx.with_lock(|ctx| {
-            let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
-            for t in tracks {
-                t.idx = 0;
-            }
-        })
-    }
-
     /// The VIP function. Plays tracks, sends state, updates latency
     fn play_next(&mut self) {
         let playing = self.ctx.with_lock(|ctx| { ctx.playing });
         if playing {
             let start = Instant::now();
+            // If pattern is queued, we switch to it on the 0 to maintain
+            // the expected beat (this is similar to default Ableton behavior
+            // in session mode for instance)
             self.ctx.with_lock(|ctx| {
+                if self.pulse_idx == 0 {
+                    if ctx.queued_pattern_id != ctx.pattern_id {
+                        ctx.pattern_id = ctx.queued_pattern_id;
+                        ctx.reset_playheads();
+                    }
+                }
+
                 // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
                 // and then in fact we might have to move that tracking to the track
                 if self.pulse_idx % (self.ppb / ctx.division) == 0 {
@@ -602,7 +610,9 @@ impl Sequencer {
 
         } else if self.pulse_idx != 0 {
             self.pulse_idx = 0;
-            self.reset_playheads();
+            self.ctx.with_lock(|ctx| {
+                ctx.patterns[ctx.pattern_id].reset_playheads();
+            });
         }
 
         self.tx_state();
@@ -665,6 +675,7 @@ impl Sequencer {
                     pattern_id: ctx.pattern_id,
                     pattern_len: ctx.patterns.len(),
                     pattern_name: ctx.patterns[ctx.pattern_id].name.clone(),
+                    queued_pattern_id: ctx.queued_pattern_id,
                 });
             }
         })
@@ -706,9 +717,14 @@ impl Sequencer {
                         // Adding a new pattern will duplicate the current pattern
                         // tracks and clear the slots
                         Command::AddPattern => {
+                            let new_id = ctx.patterns.len();
                             ctx.patterns.push(ctx.patterns[ctx.pattern_id].clone());
-                            ctx.pattern_id = ctx.patterns.len() - 1;
-                            ctx.patterns[ctx.pattern_id].zero_all_tracks();
+                            ctx.patterns[new_id].zero_all_tracks();
+                            if ctx.playing {
+                                ctx.queued_pattern_id = new_id;
+                            } else {
+                                ctx.pattern_id = new_id;
+                            }
                         },
                         Command::RemovePattern(idx) => {
                             ctx.patterns.remove(idx);
@@ -717,7 +733,11 @@ impl Sequencer {
                             }
                         },
                         Command::SelectPattern(idx) => {
-                            ctx.pattern_id = idx;
+                            if !ctx.playing {
+                                ctx.pattern_id = idx;
+                            } else {
+                                ctx.queued_pattern_id = idx;
+                            }
                         },
                         _ => ()
                     }
