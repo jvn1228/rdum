@@ -7,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use crate::sequencer::{Command, State, Division};
 use serde_json;
 use serde;
+use std::error::Error;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 enum MessageType {
@@ -118,6 +119,70 @@ impl WebController {
     
 }
 
+fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -> Result<(), Box<dyn Error>> {
+    match message.payload.as_object() {
+        Some(payload) => {
+            match message.msg_type {
+                MessageType::PlaySequencer => {
+                    cmd_tx_ch.send(Command::PlaySequencer)?;
+                },
+                MessageType::StopSequencer => {
+                    cmd_tx_ch.send(Command::StopSequencer)?;
+                },
+                MessageType::SetTempo => {
+                    let tempo = payload.get("tempo").unwrap().as_i64().unwrap() as u8;
+                    cmd_tx_ch.send(Command::SetTempo(tempo))?;
+                },
+                MessageType::SetPattern => {
+                    let pattern_idx = payload.get("pattern_idx").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::SetPattern(pattern_idx))?;
+                },
+                MessageType::SetDivision => {
+                    let division = payload.get("division").unwrap().as_i64().unwrap();
+                    cmd_tx_ch.send(Command::SetDivision(division.try_into()?))?;
+                },
+                MessageType::PlaySound => {
+                    let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::PlaySound(track_idx, 127))?;
+                },
+                MessageType::SetSlotVelocity => {
+                    let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
+                    let slot_idx = payload.get("slotIdx").unwrap().as_i64().unwrap() as usize;
+                    let velocity = payload.get("velocity").unwrap().as_i64().unwrap() as u8;
+                    cmd_tx_ch.send(Command::SetSlotVelocity(track_idx, slot_idx, velocity))?;
+                },
+                MessageType::SetTrackLength => {
+                    let track_idx = payload.get("track_idx").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::SetTrackLength(track_idx))?;
+                },
+                MessageType::AddPattern => {
+                    cmd_tx_ch.send(Command::AddPattern)?;
+                },
+                MessageType::RemovePattern => {
+                    let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::RemovePattern(pattern_id))?;
+                },
+                MessageType::SelectPattern => {
+                    let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::SelectPattern(pattern_id))?;
+                },
+                MessageType::SetPatternLength => {
+                    let length = payload.get("length").unwrap().as_i64().unwrap() as usize;
+                    cmd_tx_ch.send(Command::SetPatternLength(length))?;
+                },
+                _ => {
+                    return Err(format!("Received unknown command: {:?}", message).into())
+                }
+            }
+        },
+        None => {
+            return Err(format!("Received bad message: {:?}", message).into())
+        }
+    }
+
+    Ok(())
+}
+
 async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<State>, cmd_tx_ch: mpsc::Sender<Command>) {
     let peer = stream.peer_addr().unwrap();
     println!("Starting WebSocket handling for {}", peer);
@@ -175,63 +240,8 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                         if let Message::Text(text) = msg {
                             println!("[{}] Received client message: {}", peer, text);
                             let message: WebSocketMessage = serde_json::from_str(&text).unwrap();
-                            match message.payload.as_object() {
-                                Some(payload) => {
-                                    match message.msg_type {
-                                        MessageType::PlaySequencer => {
-                                            cmd_tx_ch.send(Command::PlaySequencer).unwrap();
-                                        },
-                                        MessageType::StopSequencer => {
-                                            cmd_tx_ch.send(Command::StopSequencer).unwrap();
-                                        },
-                                        MessageType::SetTempo => {
-                                            let tempo = payload.get("tempo").unwrap().as_i64().unwrap() as u8;
-                                            cmd_tx_ch.send(Command::SetTempo(tempo)).unwrap();
-                                        },
-                                        MessageType::SetPattern => {
-                                            let pattern_idx = payload.get("pattern_idx").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::SetPattern(pattern_idx)).unwrap();
-                                        },
-                                        MessageType::SetDivision => {
-                                            cmd_tx_ch.send(Command::SetDivision(Division::W)).unwrap();
-                                        },
-                                        MessageType::PlaySound => {
-                                            let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::PlaySound(track_idx, 127)).unwrap();
-                                        },
-                                        MessageType::SetSlotVelocity => {
-                                            let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
-                                            let slot_idx = payload.get("slotIdx").unwrap().as_i64().unwrap() as usize;
-                                            let velocity = payload.get("velocity").unwrap().as_i64().unwrap() as u8;
-                                            cmd_tx_ch.send(Command::SetSlotVelocity(track_idx, slot_idx, velocity)).unwrap();
-                                        },
-                                        MessageType::SetTrackLength => {
-                                            let track_idx = payload.get("track_idx").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::SetTrackLength(track_idx)).unwrap();
-                                        },
-                                        MessageType::AddPattern => {
-                                            cmd_tx_ch.send(Command::AddPattern).unwrap();
-                                        },
-                                        MessageType::RemovePattern => {
-                                            let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::RemovePattern(pattern_id)).unwrap();
-                                        },
-                                        MessageType::SelectPattern => {
-                                            let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::SelectPattern(pattern_id)).unwrap();
-                                        },
-                                        MessageType::SetPatternLength => {
-                                            let length = payload.get("length").unwrap().as_i64().unwrap() as usize;
-                                            cmd_tx_ch.send(Command::SetPatternLength(length)).unwrap();
-                                        },
-                                        _ => {
-                                            println!("[{}] Received unknown message: {}", peer, &text);
-                                        }
-                                    }
-                                },
-                                None => {
-                                    println!("[{}] Received bad message payload: {}", peer, message.payload);
-                                }
+                            if let Err(e) = handle_command(cmd_tx_ch.clone(), message) {
+                                println!("[{}] Error handling command: {:?}", peer, e);
                             }
                         }
                     },

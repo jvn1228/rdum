@@ -14,7 +14,6 @@ pub enum Command {
     StopSequencer,
     SetTempo(u8),
     SetPattern(usize),
-    SetDivision(Division),
     PlaySound(usize, u8),
     // Track program commands
     SetSlotVelocity(usize, usize, u8),
@@ -24,6 +23,7 @@ pub enum Command {
     RemovePattern(usize),
     SelectPattern(usize),
     SetPatternLength(usize),
+    SetDivision(Division),
     Unspecified,
 }
 
@@ -43,6 +43,24 @@ pub enum Division {
     S = 16,
     TD = 24,
     T = 32,
+}
+
+impl From<i64> for Division {
+    fn from(value: i64) -> Self {
+        match value {
+            1 => Division::W,
+            2 => Division::H,
+            3 => Division::QD,
+            4 => Division::Q,
+            6 => Division::ED,
+            8 => Division::E,
+            12 => Division::SD,
+            16 => Division::S,
+            24 => Division::TD,
+            32 => Division::T,
+            _ => Division::W,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -82,7 +100,13 @@ pub struct BufferedSample {
 }
 
 impl BufferedSample {
-    pub fn load_from_file(fp: &str) -> Result<BufferedSample, Box<dyn Error>> {
+    fn new(fp: &str) -> Result<Arc<Self>, Box<dyn Error>> {
+        let pwd = env!("CARGO_MANIFEST_DIR");  
+        let sample = Self::load_from_file(&format!("{pwd}/{fp}").to_string())?;
+        Ok(Arc::new(sample))
+    }
+
+    pub fn load_from_file(fp: &str) -> Result<Self, Box<dyn Error>> {
         let file = File::open(fp)?;
         let decoder = rodio::Decoder::new(file)?;
         let sample_rate = decoder.sample_rate();
@@ -148,6 +172,7 @@ pub struct Slot {
 pub struct Track {
     pub slots: Vec<Slot>,
     pub sample: Arc<BufferedSample>,
+    pub sample_path: String,
     pub idx: usize,
     pub len: usize,
     pub sink: Arc<Sink>,
@@ -155,21 +180,23 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn new(name: String, len: usize, sample: Arc<BufferedSample>, sink: Arc<Sink>) -> Track {
+    pub fn new(name: String, len: usize, sample_path: String, sink: Arc<Sink>) -> Result<Self, Box<dyn Error>> {
         let mut slots = vec![];
         for _ in 0..len {
             slots.push(Slot {
                 velocity: 0
             });
         }
-        Track {
+        let sample = BufferedSample::new(&sample_path)?;
+        Ok(Track {
             slots,
             sample,
+            sample_path,
             idx: 0, 
             len,
             sink,
             name
-        }
+        })
     }
 
     pub fn reset_slots(&mut self) {
@@ -227,7 +254,7 @@ impl ChokeGrp {
 
 /// `Pattern` is a collection of tracks
 /// 
-/// To do: this probably needs to wrap as a Context handle as well
+/// If an empty pattern is saved, this can be considered a kit.
 #[derive(Clone)]
 pub struct Pattern {
     pub tracks: Vec<Track>,
@@ -545,13 +572,14 @@ impl Sequencer {
     /// This index serves as the track Id and is referred to as such throughout the code
     /// So be aware track_id is its location in the tracks list, while track_idx is the current
     /// playhead position of the track's slots.
-    pub fn add_track(&mut self, name: String, sample: Arc<BufferedSample>) -> Result<TrackHandle, Box<dyn Error>> {
+    pub fn add_track(&mut self, sample_path: String) -> Result<TrackHandle, Box<dyn Error>> {
+        let name = sample_path.split('/').last().unwrap().split('.').next().unwrap().to_string();
         let sink = Sink::try_new(&self.stream)?;
         let sink = Arc::new(sink);
         sink.play();
         self.ctx.with_lock(|ctx| {
             let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
-            tracks.push(Track::new(name, ctx.default_len, sample, sink));
+            tracks.push(Track::new(name, ctx.default_len, sample_path, sink)?);
             Ok(TrackHandle::new(self.ctx.clone(), tracks.len() as u8 - 1))
         })
     }

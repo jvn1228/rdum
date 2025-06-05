@@ -4,6 +4,8 @@ import '@material/web/labs/navigationbar/navigation-bar.js';
 import '@material/web/labs/navigationtab/navigation-tab.js';
 import '@material/web/icon/icon.js';
 import '@material/web/textfield/filled-text-field.js';
+import '@material/web/select/filled-select.js';
+import '@material/web/select/select-option.js';
 import './drum-track';
 import './pattern-selector';
 import './transport-controls';
@@ -122,13 +124,18 @@ export class DrumMachineApp extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 3rem;
       margin-left: 16px;
     }
 
     .pattern-length-controls label {
       font-size: 0.9em;
       color: var(--text-secondary-color);
+    }
+
+    md-select-option, md-filled-select {
+      min-width: 7rem;
+      max-width: 7rem;
     }
   `;
 
@@ -192,6 +199,23 @@ export class DrumMachineApp extends LitElement {
                 max="256" 
                 @change=${this._handlePatternLengthChange}
               ></md-filled-text-field>
+              <label for="divisionInput">Division:</label>
+              <md-filled-select
+                id="divisionInput"
+                value=${this.drumState.division}
+                @change=${this._handleDivisionChange}
+              >
+                <md-select-option value="1">1</md-select-option>
+                <md-select-option value="2">1/2</md-select-option>
+                <md-select-option value="3">1/4.</md-select-option>
+                <md-select-option value="4">1/4</md-select-option>
+                <md-select-option value="6">1/8.</md-select-option>
+                <md-select-option value="8">1/8</md-select-option>
+                <md-select-option value="12">1/16.</md-select-option>
+                <md-select-option value="16">1/16</md-select-option>
+                <md-select-option value="24">1/32.</md-select-option>
+                <md-select-option value="32">1/32</md-select-option>
+              </md-filled-select>
             </div>
             <div class="drum-grid-container">
               ${this.drumState.trks.map((track, idx) => html`
@@ -267,6 +291,12 @@ export class DrumMachineApp extends LitElement {
     }
 
     this.webSocketService.setPatternLength(newLength);
+  }
+
+  private _handleDivisionChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const newDivision = parseInt(select.value, 10);
+    this.webSocketService.setDivision(newDivision);
   }
   
   _handleThemeChanged(e: CustomEvent) {

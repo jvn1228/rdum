@@ -36,6 +36,7 @@ export enum MessageType {
   REMOVE_PATTERN = 'remove_pattern',
   SELECT_PATTERN = 'select_pattern',
   SET_PATTERN_LENGTH = 'set_pattern_length',
+  SET_DIVISION = 'set_division',
 }
 
 export interface WebSocketMessage {
@@ -64,5 +65,9 @@ export interface SelectPatternPayload {
 
 export interface SetPatternLengthPayload {
   length: number;
+}
+
+export interface SetDivisionPayload {
+  division: number;
 }
 

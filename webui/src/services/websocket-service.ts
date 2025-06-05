@@ -125,6 +125,13 @@ export class WebSocketService {
     this.sendMessage(types.MessageType.SET_PATTERN_LENGTH, payload);
   }
 
+  public setDivision(division: number): void {
+    const payload: types.SetDivisionPayload = {
+      division
+    };
+    this.sendMessage(types.MessageType.SET_DIVISION, payload);
+  }
+
   private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       const message: types.WebSocketMessage = {

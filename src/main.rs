@@ -12,12 +12,6 @@ use crossterm::{event::{self, Event, KeyCode}, terminal};
 use midir::MidiOutput;
 
 use sequencer::ChokeGrp;
-
-fn new_buffered_sample(fp: &str) -> Result<Arc<sequencer::BufferedSample>, Box<dyn Error>> {
-    let pwd = env!("CARGO_MANIFEST_DIR");  
-    let sample = sequencer::BufferedSample::load_from_file(&format!("{pwd}/{fp}").to_string())?;
-    Ok(Arc::new(sample))
-}
                                                                                                                                              
 fn main() -> Result<(), Box<dyn Error>> {      
     let pwd = env!("CARGO_MANIFEST_DIR");       
@@ -42,20 +36,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // seq.set_tempo(90);
     seq.set_division(sequencer::Division::E);
 
-    let sample_hat = new_buffered_sample("one_shots/hat0.wav")?;
-    let trk_hat = seq.add_track("Hat".to_string(), Arc::clone(&sample_hat))?;
+    let trk_hat = seq.add_track("one_shots/kit0/hat.wav".to_string())?;
     trk_hat.set_slots_vel(&[50, 0, 0, 0, 0, 127, 32, 0]);
 
-    let sample_kick = new_buffered_sample("one_shots/kick0.wav")?;
-    let trk_kick = seq.add_track("Kick".to_string(), Arc::clone(&sample_kick))?;
+    let trk_kick = seq.add_track("one_shots/kit0/kick.wav".to_string())?;
     trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75]);
 
-    let sample_snare = new_buffered_sample("one_shots/snare0.wav")?;
-    let trk_snare = seq.add_track("Snare".to_string(), Arc::clone(&sample_snare))?;
+    let trk_snare = seq.add_track("one_shots/kit0/snare.wav".to_string())?;
     trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);         
 
-    let sample_open_hat = new_buffered_sample("one_shots/open_hat0.wav")?;
-    let trk_open_hat = seq.add_track("Open Hat".to_string(), Arc::clone(&sample_open_hat))?;
+    let trk_open_hat = seq.add_track("one_shots/kit0/open_hat.wav".to_string())?;
     trk_open_hat.set_slots_vel(&[0, 0, 0, 0, 0, 0, 0, 127]);         
 
     let seq_ctx_handle = seq.ctx.clone();
