@@ -23,6 +23,7 @@ export interface DrumMachineState {
   pattern_id: number;
   pattern_name: string;
   queued_pattern_id: number;
+  saved_patterns: string[];
 }
 
 export enum MessageType {
@@ -37,6 +38,8 @@ export enum MessageType {
   SELECT_PATTERN = 'select_pattern',
   SET_PATTERN_LENGTH = 'set_pattern_length',
   SET_DIVISION = 'set_division',
+  SAVE_PATTERN = 'save_pattern',
+  LOAD_PATTERN = 'load_pattern',
 }
 
 export interface WebSocketMessage {
@@ -69,5 +72,9 @@ export interface SetPatternLengthPayload {
 
 export interface SetDivisionPayload {
   division: number;
+}
+
+export interface LoadPatternPayload {
+  fname: string;
 }
 

@@ -2,6 +2,8 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import '@material/web/button/filled-button.js';
 import '@material/web/button/outlined-button.js';
+import '@material/web/select/filled-select.js';
+import '@material/web/select/select-option.js';
 
 @customElement('pattern-selector')
 export class PatternSelector extends LitElement {
@@ -9,6 +11,9 @@ export class PatternSelector extends LitElement {
   @property({ type: Number }) currentPatternId = 0;
   @property({ type: Number }) queuedPatternId = 0;
   @property({ type: String }) patternName = '';
+  @property({ type: Array }) savedPatterns: string[] = [];
+
+  private selectedPatternName: string = '';
 
   static styles = css`
     :host {
@@ -86,6 +91,19 @@ export class PatternSelector extends LitElement {
           <md-icon slot="icon">add</md-icon>
           Add Pattern
         </md-filled-button>
+        <md-filled-button @click=${() => this._handleSavePattern()}>
+          <md-icon slot="icon">save</md-icon>
+          Save Pattern
+        </md-filled-button>
+        <md-filled-select @change=${this._handleSavedPatternSelect}>
+          ${this.savedPatterns.map((pattern, index) => html`
+            <md-select-option .value=${pattern} .label=${pattern}>${pattern}</md-select-option>
+          `)}
+        </md-filled-select>
+        <md-filled-button @click=${() => this._handleLoadPattern()}>
+          <md-icon slot="icon">download</md-icon>
+          Load Pattern
+        </md-filled-button>
       </div>
     `;
   }
@@ -100,6 +118,27 @@ export class PatternSelector extends LitElement {
   _handlePatternSelect(patternId: number) {
     this.dispatchEvent(new CustomEvent('pattern-selected', {
       detail: { patternId },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  _handleSavePattern() {
+    this.dispatchEvent(new CustomEvent('save-pattern', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  _handleSavedPatternSelect(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const selectedOption = select.options[select.selectedIndex];
+    this.selectedPatternName = selectedOption.value;
+  }
+
+  _handleLoadPattern() {
+    this.dispatchEvent(new CustomEvent('load-pattern', {
+      detail: { fname: this.selectedPatternName },
       bubbles: true,
       composed: true
     }));

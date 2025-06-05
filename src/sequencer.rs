@@ -1,13 +1,18 @@
-use rodio::{OutputStreamHandle, Sink, Source};                                                                                     
+use rodio::{OutputStreamHandle, Sink, Source};
+use tokio::time::error::Elapsed;                                                                                     
 use std::{sync::mpsc, time::Duration};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::time::Instant;
 use std::thread::yield_now;
 use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection};
+use serde::{Serialize, Deserialize};
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+const PWD: &str = env!("CARGO_MANIFEST_DIR");
+
+#[derive(Debug, Clone, Serialize)]
 pub enum Command {
     // Sequencer playback commands
     PlaySequencer,
@@ -24,6 +29,8 @@ pub enum Command {
     SelectPattern(usize),
     SetPatternLength(usize),
     SetDivision(Division),
+    SavePattern,
+    LoadPattern(String),
     Unspecified,
 }
 
@@ -31,7 +38,7 @@ impl Default for Command {
     fn default() -> Self { Command::Unspecified }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Division {
     W = 1,
     H = 2,
@@ -87,6 +94,7 @@ pub struct State {
     pub pattern_len: usize,
     pub pattern_name: String,
     pub queued_pattern_id: usize,
+    pub saved_patterns: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -101,8 +109,7 @@ pub struct BufferedSample {
 
 impl BufferedSample {
     fn new(fp: &str) -> Result<Arc<Self>, Box<dyn Error>> {
-        let pwd = env!("CARGO_MANIFEST_DIR");  
-        let sample = Self::load_from_file(&format!("{pwd}/{fp}").to_string())?;
+        let sample = Self::load_from_file(&format!("{PWD}/{fp}").to_string())?;
         Ok(Arc::new(sample))
     }
 
@@ -158,9 +165,16 @@ impl Source for BufferedSample {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Hash)]
 pub struct Slot {
     pub velocity: u8,
+}
+
+/// Struct for saving track data to file
+#[derive(Clone, Serialize, Deserialize, Hash)]
+pub struct SavedTrack {
+    pub slots: Vec<Slot>,
+    pub sample_path: String,
 }
 
 /// `Track` contains data that allows the sequencer to play a sample 
@@ -180,7 +194,8 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn new(name: String, len: usize, sample_path: String, sink: Arc<Sink>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(len: usize, sample_path: String, sink: Arc<Sink>) -> Result<Self, Box<dyn Error>> {
+        let name = sample_path.split('/').last().unwrap().split('.').next().unwrap().to_string();
         let mut slots = vec![];
         for _ in 0..len {
             slots.push(Slot {
@@ -218,7 +233,7 @@ impl Track {
 
 /// ChokeGrp allows defining tracks that stop other tracks in
 /// the same choke group when triggered
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Hash)]
 pub struct ChokeGrp {
     pub track_ids: Vec<usize>,
 }
@@ -252,6 +267,14 @@ impl ChokeGrp {
     }
 }
 
+/// Struct for saving pattern data to file
+#[derive(Clone, Serialize, Deserialize, Hash)]
+pub struct SavedPattern {
+    pub tracks: Vec<SavedTrack>,
+    pub choke_grps: Vec<ChokeGrp>,
+    pub division: Division
+}
+
 /// `Pattern` is a collection of tracks
 /// 
 /// If an empty pattern is saved, this can be considered a kit.
@@ -259,6 +282,10 @@ impl ChokeGrp {
 pub struct Pattern {
     pub tracks: Vec<Track>,
     pub choke_grps: Vec<ChokeGrp>,
+    /// defines the note length of a beat
+    /// 
+    /// allowable set{1,2,3,4,6,8,12,16,24,32}
+    pub division: Division,
     pub name: String,
 }
 
@@ -298,12 +325,20 @@ impl Pattern {
             track.set_len(len);
         });
     }
+
+    pub fn set_division(&mut self, division: Division) {
+        self.division = division;
+    }
 }
 
 /// Struct that describes internal sequencer state that can be
 /// modified by the user as well as connections and channels
+/// 
+/// Note that many parameters are actually pattern-specific
 pub struct Context {
+    pub stream: Arc<OutputStreamHandle>,
     pub patterns: Vec<Pattern>,
+    pub saved_patterns: Vec<String>,
     pub pattern_id: usize,
     // If there is no new pattern for queueing it should be
     // the current pattern since the same pattern is queued
@@ -318,10 +353,6 @@ pub struct Context {
     /// note: this is not the same as a beat and has to be a higher frequency
     /// to handle things like swing
     pulse_interval: Duration,
-    /// defines the note length of a beat
-    /// 
-    /// allowable set{1,2,3,4,6,8,12,16,24,32}
-    division: u8,
     playing: bool,
     command_rx_ch: mpsc::Receiver<Command>,
     last_cmd: Command,
@@ -350,12 +381,96 @@ impl Context {
         }
     }
 
-    pub fn set_division(&mut self, division: Division) {
-        self.division = division as u8;
-    }
-
     pub fn reset_playheads(&mut self) {
         self.patterns[self.pattern_id].reset_playheads();
+    }
+
+    // Saves the current pattern with named after its index
+    // We also save a shortened hash of the file with it
+    // but todo, I do think we need to allow specifying a name
+    // or the user will get lost
+    pub fn save_pattern(&mut self) -> Result<(), Box<dyn Error>> {
+        let pattern = &self.patterns[self.pattern_id];
+        let saved_pattern = SavedPattern {
+            tracks: pattern.tracks.iter().map(|track| SavedTrack {
+                slots: track.slots.clone(),
+                sample_path: track.sample_path.clone()
+            }).collect(),
+            choke_grps: pattern.choke_grps.clone(),
+            division: pattern.division,
+        };
+        let mut hash = std::hash::DefaultHasher::new();
+        saved_pattern.hash(&mut hash);
+        // converts to hex and truncates
+        let hash = format!("{:x}", hash.finish())[..8].to_string();
+        let f_name = format!("{}-{}.json", pattern.name, hash);
+        let f_name = f_name.replace(" ", "_");
+        let file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(format!("{PWD}/patterns/{}", &f_name))?;
+        let file = std::io::BufWriter::new(file);
+        serde_json::to_writer(file, &saved_pattern)?;
+        self.refresh_saved_patterns()?;
+        Ok(())
+    }
+
+    // Loads pattern from json file
+    // This creates a new sink, and I am not sure old sinks are
+    // destroyed when added to the stream so...maybe the better way I suspect
+    // is to rotate available sinks
+    pub fn load_pattern(&mut self, pattern_fname: String) -> Result<(), Box<dyn Error>> {
+        let pattern = &self.patterns[self.pattern_id];
+
+        let file = std::fs::File::open(format!("{PWD}/patterns/{}", pattern_fname))?;
+        let file = std::io::BufReader::new(file);
+        let saved_pattern: SavedPattern = serde_json::from_reader(file)?;
+
+        self.patterns[self.pattern_id] = Pattern {
+            tracks: saved_pattern.tracks.iter().filter_map(
+                |track|
+                if let Ok(sink) = Sink::try_new(&self.stream) {
+                    if let Ok(mut t) = Track::new(
+                        track.slots.len(),
+                        track.sample_path.clone(),
+                        Arc::new(sink)
+                    ) {
+                        t.slots = track.slots.clone();
+                        Some(t)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            ).collect(),
+            choke_grps: saved_pattern.choke_grps.clone(),
+            division: saved_pattern.division,
+            name: pattern.name.clone(),
+        };
+        if self.playing {
+            // just so we send a midi start message out
+            self.enable_play();
+        }
+        Ok(())
+    }
+
+    pub fn refresh_saved_patterns(&mut self) -> Result<(), Box<dyn Error>> {
+        let patterns = std::fs::read_dir(format!("{PWD}/patterns"))?;
+        let patterns = patterns.filter_map(|entry| {
+            if let Ok(entry) = entry {
+                if let Some(path) = entry.path().to_str() {
+                    // Only return file name
+                    Some(path.split('/').last().unwrap().to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).collect();
+        self.saved_patterns = patterns;
+        Ok(())
     }
 }
 
@@ -393,16 +508,6 @@ impl ContextHandle {
     pub fn set_tempo(&self, t: u8) {
         self.with_lock(|ctx| {
             ctx.set_tempo(t)
-        })
-    }
-
-    pub fn division(&self) -> u8 {
-        self.with_lock(|ctx| { ctx.division })
-    }
-
-    pub fn set_division(&self, division: Division) {
-        self.with_lock(|ctx| {
-            ctx.set_division(division);
         })
     }
 
@@ -479,7 +584,6 @@ impl TrackHandle {
 pub struct Sequencer {
     /// Properties that can be modified
     pub ctx: ContextHandle,
-    pub stream: Arc<OutputStreamHandle>,
     /// Average of current and last cycle time
     latency: Duration,
     /// the actual sleep time, which may differ from pulse interval
@@ -507,26 +611,27 @@ impl Sequencer {
     /// Creates a new sequencer instance
     pub fn new(stream: Arc<OutputStreamHandle>) -> Sequencer {
         let (command_tx, command_rx) = mpsc::channel();
-        Sequencer {
+        let s = Sequencer {
             ctx: ContextHandle::new(Context {
                 patterns: vec![Pattern {
                     tracks: vec![],
                     choke_grps: vec![],
-                    name: "Pattern 1".to_string()
+                    name: "Pattern 1".to_string(),
+                    division: Division::E,
                 }],
                 pattern_id: 0,
                 queued_pattern_id: 0,
+                saved_patterns: vec![],
                 default_len: 8,
                 tempo: 120,
                 // corresponds to 120 bpm
                 pulse_interval: Duration::from_secs_f32(2.5/120.0),
-                division: 4,
                 playing: false,
                 command_rx_ch: command_rx,
                 last_cmd: Command::Unspecified,
                 midi_conn: None,
+                stream,
             }),
-            stream,
             latency: Duration::ZERO,
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
             // pulses per bar, 24 per quarter note
@@ -536,7 +641,13 @@ impl Sequencer {
             state_tx_ch: vec![],
             command_tx_ch: command_tx,
             sleeper: spin_sleep::SpinSleeper::new(1_012_550_000).with_spin_strategy(spin_sleep::SpinStrategy::SpinLoopHint)
-        }
+        };
+        s.ctx.with_lock(|ctx| {
+            if let Err(e) = ctx.refresh_saved_patterns() {
+                println!("Failed to refresh saved patterns: {}", e);
+            }   
+        });
+        s
     }
 
     /// Sets tempo via ctx handle
@@ -573,13 +684,12 @@ impl Sequencer {
     /// So be aware track_id is its location in the tracks list, while track_idx is the current
     /// playhead position of the track's slots.
     pub fn add_track(&mut self, sample_path: String) -> Result<TrackHandle, Box<dyn Error>> {
-        let name = sample_path.split('/').last().unwrap().split('.').next().unwrap().to_string();
-        let sink = Sink::try_new(&self.stream)?;
-        let sink = Arc::new(sink);
-        sink.play();
         self.ctx.with_lock(|ctx| {
+            let sink = Sink::try_new(&ctx.stream)?;
+            let sink = Arc::new(sink);
+            sink.play();
             let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
-            tracks.push(Track::new(name, ctx.default_len, sample_path, sink)?);
+            tracks.push(Track::new(ctx.default_len, sample_path, sink)?);
             Ok(TrackHandle::new(self.ctx.clone(), tracks.len() as u8 - 1))
         })
     }
@@ -613,9 +723,9 @@ impl Sequencer {
 
                 // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
                 // and then in fact we might have to move that tracking to the track
-                if self.pulse_idx % (self.ppb / ctx.division) == 0 {
+                let pattern = &mut ctx.patterns[ctx.pattern_id];
+                if self.pulse_idx % (self.ppb / pattern.division as u8) == 0 {
                     let mut triggered_ids: Vec<usize> = vec![];
-                    let pattern = &mut ctx.patterns[ctx.pattern_id];
                     let tracks = &mut pattern.tracks;
                     for (i, t) in tracks.into_iter().enumerate() {
                         let vel = &mut t.slots[t.idx].velocity;
@@ -673,7 +783,9 @@ impl Sequencer {
 
     /// Uses ctx handle to set time division (4/4 time is quarter division, 4/8 is eighth, etc)
     pub fn set_division(&mut self, division: Division) {
-        self.ctx.set_division(division);
+        self.ctx.with_lock(|ctx| {
+            ctx.patterns[ctx.pattern_id].division = division;
+        });
     }
 
     /// Creates a new channel to send state updates to
@@ -712,15 +824,16 @@ impl Sequencer {
                 let _ = tx.send(State {
                     tempo: ctx.tempo,
                     trks: trks.clone(),
-                    division: ctx.division,
+                    division: ctx.patterns[ctx.pattern_id].division as u8,
                     default_len: ctx.default_len,
                     latency: self.latency,
-                    last_cmd: ctx.last_cmd,
+                    last_cmd: ctx.last_cmd.clone(),
                     playing: ctx.playing,
                     pattern_id: ctx.pattern_id,
                     pattern_len: ctx.patterns.len(),
                     pattern_name: ctx.patterns[ctx.pattern_id].name.clone(),
                     queued_pattern_id: ctx.queued_pattern_id,
+                    saved_patterns: ctx.saved_patterns.clone(),
                 });
             }
         })
@@ -738,7 +851,7 @@ impl Sequencer {
         loop {
             ctx.with_lock(|ctx| {
                 if let Ok(cmd) = ctx.command_rx_ch.try_recv() {
-                    ctx.last_cmd = cmd;
+                    ctx.last_cmd = cmd.clone();
                     match cmd {
                         Command::SetTempo(bpm) => ctx.set_tempo(bpm),
                         Command::PlaySound(trk_id, vel) => (|trk_id, vel| {
@@ -755,7 +868,7 @@ impl Sequencer {
                             })(trk_id, vel),
                         Command::PlaySequencer => ctx.enable_play(),
                         Command::StopSequencer => ctx.disable_play(),
-                        Command::SetDivision(div) => ctx.set_division(div),
+                        Command::SetDivision(div) => ctx.patterns[ctx.pattern_id].division = div,
                         Command::SetSlotVelocity(trk, slot, vel) => {
                             ctx.patterns[ctx.pattern_id].tracks[trk].slots[slot].velocity = vel;
                         },
@@ -765,6 +878,7 @@ impl Sequencer {
                             let new_id = ctx.patterns.len();
                             ctx.patterns.push(ctx.patterns[ctx.pattern_id].clone());
                             ctx.patterns[new_id].zero_all_tracks();
+                            ctx.patterns[new_id].name = format!("Pattern {}", new_id + 1);
                             if ctx.playing {
                                 ctx.queued_pattern_id = new_id;
                             } else {
@@ -786,6 +900,16 @@ impl Sequencer {
                         },
                         Command::SetPatternLength(len) => {
                             ctx.patterns[ctx.pattern_id].set_len(len);
+                        },
+                        Command::SavePattern => {
+                            if let Err(e) = ctx.save_pattern() {
+                                println!("Failed to save pattern: {}", e);
+                            }
+                        },
+                        Command::LoadPattern(pattern_fname) => {
+                            if let Err(e) = ctx.load_pattern(pattern_fname.clone()) {
+                                println!("Failed to load pattern: {}", e);
+                            }
                         },
                         _ => ()
                     }

@@ -28,6 +28,7 @@ export class DrumMachineApp extends LitElement {
     latency: 0,
     default_len: 16,
     queued_pattern_id: 0,
+    saved_patterns: [],
   };
 
   // Since the backend doesn't use pattern IDs, we'll use a fixed value
@@ -173,8 +174,11 @@ export class DrumMachineApp extends LitElement {
               .patternLen=${this.drumState.pattern_len}
               .currentPatternId=${this.drumState.pattern_id}
               .queuedPatternId=${this.drumState.queued_pattern_id}
+              .savedPatterns=${this.drumState.saved_patterns}
               @pattern-selected=${this.handlePatternSelected}
               @add-pattern=${this.handleAddPattern}
+              @save-pattern=${this._handleSavePattern}
+              @load-pattern=${this._handleLoadPattern}
             ></pattern-selector>
           </div>
           <div class="transport-container glass-card">
@@ -297,6 +301,15 @@ export class DrumMachineApp extends LitElement {
     const select = e.target as HTMLSelectElement;
     const newDivision = parseInt(select.value, 10);
     this.webSocketService.setDivision(newDivision);
+  }
+
+  private _handleSavePattern() {
+    this.webSocketService.savePattern();
+  }
+
+  private _handleLoadPattern(e: CustomEvent) {
+    const { fname } = e.detail;
+    this.webSocketService.loadPattern(fname);
   }
   
   _handleThemeChanged(e: CustomEvent) {

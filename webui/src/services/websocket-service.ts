@@ -132,6 +132,17 @@ export class WebSocketService {
     this.sendMessage(types.MessageType.SET_DIVISION, payload);
   }
 
+  public savePattern(): void {
+    this.sendMessage(types.MessageType.SAVE_PATTERN, {});
+  }
+
+  public loadPattern(fname: string): void {
+    const payload: types.LoadPatternPayload = {
+      fname
+    };
+    this.sendMessage(types.MessageType.LOAD_PATTERN, payload);
+  }
+
   private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       const message: types.WebSocketMessage = {

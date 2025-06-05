@@ -37,6 +37,10 @@ enum MessageType {
     SelectPattern,
     #[serde(rename = "set_pattern_length")]
     SetPatternLength,
+    #[serde(rename = "save_pattern")]
+    SavePattern,
+    #[serde(rename = "load_pattern")]
+    LoadPattern,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -169,6 +173,13 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
                 MessageType::SetPatternLength => {
                     let length = payload.get("length").unwrap().as_i64().unwrap() as usize;
                     cmd_tx_ch.send(Command::SetPatternLength(length))?;
+                },
+                MessageType::SavePattern => {
+                    cmd_tx_ch.send(Command::SavePattern)?;
+                },
+                MessageType::LoadPattern => {
+                    let fname = payload.get("fname").unwrap().as_str().unwrap();
+                    cmd_tx_ch.send(Command::LoadPattern(fname.to_string()))?;
                 },
                 _ => {
                     return Err(format!("Received unknown command: {:?}", message).into())
