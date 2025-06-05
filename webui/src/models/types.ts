@@ -35,6 +35,7 @@ export enum MessageType {
   ADD_PATTERN = 'add_pattern',
   REMOVE_PATTERN = 'remove_pattern',
   SELECT_PATTERN = 'select_pattern',
+  SET_PATTERN_LENGTH = 'set_pattern_length',
 }
 
 export interface WebSocketMessage {
@@ -60,3 +61,8 @@ export interface ChangeTempoPayload {
 export interface SelectPatternPayload {
   patternId: number;
 }
+
+export interface SetPatternLengthPayload {
+  length: number;
+}
+

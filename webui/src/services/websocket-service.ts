@@ -1,13 +1,21 @@
-import { MessageType, WebSocketMessage, TogglePadPayload, SelectPatternPayload, ChangeTempoPayload, DrumMachineState } from '../models/types';
+import * as types from '../models/types';
 
 export class WebSocketService {
   private socket: WebSocket | null = null;
   private url: string;
   private reconnectDelay: number = 1000;
-  private listeners: ((state: DrumMachineState) => void)[] = [];
+  private listeners: ((state: types.DrumMachineState) => void)[] = [];
 
-  constructor(url: string = 'ws://localhost:8080') {
-    this.url = url;
+  constructor(url?: string) {
+    if (url) {
+      this.url = url;
+    } else {
+      // Default to using the current hostname the page is served from,
+      // assuming the WebSocket server is on the same host, port 8080.
+      const hostname = window.location.hostname;
+      this.url = `ws://${hostname}:8080`;
+    }
+    console.log(`WebSocketService attempting to connect to: ${this.url}`);
   }
 
   public connect(): void {
@@ -23,8 +31,8 @@ export class WebSocketService {
         const data = JSON.parse(event.data);
         
         // Case 1: The message is a formatted WebSocketMessage with type and payload
-        if (data.type && data.type === MessageType.STATE_UPDATE && data.payload) {
-          const state = data.payload as DrumMachineState;
+        if (data.type && data.type === types.MessageType.STATE_UPDATE && data.payload) {
+          const state = data.payload as types.DrumMachineState;
           this.notifyListeners(state);
           return;
         }
@@ -42,7 +50,7 @@ export class WebSocketService {
             data.isPlaying !== undefined && 
             data.currentStep !== undefined && 
             data.tempo !== undefined) {
-          const state = data as DrumMachineState;
+          const state = data as types.DrumMachineState;
           console.log('Received state update:', state);
           this.notifyListeners(state);
           return;
@@ -75,44 +83,51 @@ export class WebSocketService {
   }
 
   public togglePad(patternId: number, trackId: number, slotIdx: number, velocity: number): void {
-    const payload: TogglePadPayload = {
+    const payload: types.TogglePadPayload = {
       patternId,
       trackId,
       slotIdx,
       velocity
     };
-    this.sendMessage(MessageType.SET_SLOT_VELOCITY, payload);
+    this.sendMessage(types.MessageType.SET_SLOT_VELOCITY, payload);
   }
 
   public selectPattern(patternId: number): void {
-    const payload: SelectPatternPayload = {
+    const payload: types.SelectPatternPayload = {
       patternId
     };
-    this.sendMessage(MessageType.SELECT_PATTERN, payload);
+    this.sendMessage(types.MessageType.SELECT_PATTERN, payload);
   }
 
   public play(): void {
-    this.sendMessage(MessageType.PLAY_SEQUENCER, {});
+    this.sendMessage(types.MessageType.PLAY_SEQUENCER, {});
   }
 
   public stop(): void {
-    this.sendMessage(MessageType.STOP_SEQUENCER, {});
+    this.sendMessage(types.MessageType.STOP_SEQUENCER, {});
   }
 
   public changeTempo(tempo: number): void {
-    const payload: ChangeTempoPayload = {
+    const payload: types.ChangeTempoPayload = {
       tempo
     };
-    this.sendMessage(MessageType.SET_TEMPO, payload);
+    this.sendMessage(types.MessageType.SET_TEMPO, payload);
   }
 
   public addPattern(): void {
-    this.sendMessage(MessageType.ADD_PATTERN, {});
+    this.sendMessage(types.MessageType.ADD_PATTERN, {});
   }
 
-  private sendMessage(type: MessageType, payload: any): void {
+  public setPatternLength(length: number): void {
+    const payload: types.SetPatternLengthPayload = {
+      length
+    };
+    this.sendMessage(types.MessageType.SET_PATTERN_LENGTH, payload);
+  }
+
+  private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      const message: WebSocketMessage = {
+      const message: types.WebSocketMessage = {
         type,
         payload
       };
@@ -122,15 +137,15 @@ export class WebSocketService {
     }
   }
 
-  public addStateListener(listener: (state: DrumMachineState) => void): void {
+  public addStateListener(listener: (state: types.DrumMachineState) => void): void {
     this.listeners.push(listener);
   }
 
-  public removeStateListener(listener: (state: DrumMachineState) => void): void {
+  public removeStateListener(listener: (state: types.DrumMachineState) => void): void {
     this.listeners = this.listeners.filter(l => l !== listener);
   }
 
-  private notifyListeners(state: DrumMachineState): void {
+  private notifyListeners(state: types.DrumMachineState): void {
     this.listeners.forEach(listener => listener(state));
   }
 }

@@ -3,13 +3,14 @@ import { customElement, state } from 'lit/decorators.js';
 import '@material/web/labs/navigationbar/navigation-bar.js';
 import '@material/web/labs/navigationtab/navigation-tab.js';
 import '@material/web/icon/icon.js';
+import '@material/web/textfield/filled-text-field.js';
 import './drum-track';
 import './pattern-selector';
 import './transport-controls';
 import './theme-switch';
 import './machine-info';
 import { WebSocketService } from '../services/websocket-service';
-import { DrumMachineState, Pattern } from '../models/types';
+import { DrumMachineState } from '../models/types';
 
 @customElement('drum-machine-app')
 export class DrumMachineApp extends LitElement {
@@ -116,6 +117,19 @@ export class DrumMachineApp extends LitElement {
     .drum-grid-container {
       transition: background-color 0.3s ease;
     }
+
+    .pattern-length-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      margin-left: 16px;
+    }
+
+    .pattern-length-controls label {
+      font-size: 0.9em;
+      color: var(--text-secondary-color);
+    }
   `;
 
   connectedCallback() {
@@ -168,6 +182,17 @@ export class DrumMachineApp extends LitElement {
           
           <div class="tracks-container glass-card">
             <div class="tracks-title">Pattern: ${currentPattern || 'None'}</div>
+            <div class="pattern-length-controls">
+              <label for="patternLengthInput">Steps:</label>
+              <md-filled-text-field
+                id="patternLengthInput"
+                type="number"
+                value=${this.drumState.trks[0]?.len || this.drumState.default_len}
+                min="1"
+                max="256" 
+                @change=${this._handlePatternLengthChange}
+              ></md-filled-text-field>
+            </div>
             <div class="drum-grid-container">
               ${this.drumState.trks.map((track, idx) => html`
                 <drum-track
@@ -221,6 +246,27 @@ export class DrumMachineApp extends LitElement {
       slotIdx,
       velocity
     );
+  }
+
+  private _handlePatternLengthChange(e: Event) {
+    const input = e.target as HTMLInputElement; // Or more specifically MdFilledTextField if its type is available
+    let newLength = parseInt(input.value, 10);
+
+    if (isNaN(newLength) || newLength < 1) {
+      console.warn("Invalid pattern length, must be at least 1:", input.value);
+      newLength = Math.max(1, this.drumState.trks[0]?.len || this.drumState.default_len); // Revert to current or default
+      input.value = newLength.toString(); // Update input field
+      return;
+    }
+    
+    // Optional: Cap the maximum length
+    if (newLength > 256) { 
+      console.warn("Pattern length capped at 256:", input.value);
+      newLength = 256;
+      input.value = newLength.toString(); // Update input field
+    }
+
+    this.webSocketService.setPatternLength(newLength);
   }
   
   _handleThemeChanged(e: CustomEvent) {

@@ -23,6 +23,12 @@ export class DrumPad extends LitElement {
       transition: background-color 0.1s ease;
       border: none;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none; /* Safari */
+      -moz-user-select: none;    /* Firefox */
+      -ms-user-select: none;     /* IE/Edge */
+      -webkit-tap-highlight-color: transparent; /* Remove tap highlight on some mobile browsers */
     }
 
     .pad.active {

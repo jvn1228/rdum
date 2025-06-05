@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::fs::File;
 use std::time::Instant;
 use std::thread::yield_now;
-use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection, ConnectError};
+use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection};
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub enum Command {
@@ -23,6 +23,7 @@ pub enum Command {
     AddPattern,
     RemovePattern(usize),
     SelectPattern(usize),
+    SetPatternLength(usize),
     Unspecified,
 }
 
@@ -176,6 +177,16 @@ impl Track {
             slot.velocity = 0;
         });
     }
+
+    pub fn set_len(&mut self, len: usize) {
+        if len > self.len {
+            self.slots.extend(vec![Slot { velocity: 0 }; len - self.len]);
+        } else {
+            self.slots.truncate(len);
+            self.idx = self.idx % len;
+        }
+        self.len = len;
+    }
 }
 
 /// ChokeGrp allows defining tracks that stop other tracks in
@@ -252,6 +263,12 @@ impl Pattern {
     pub fn reset_playheads(&mut self) {
         self.tracks.iter_mut().for_each(|track| {
             track.idx = 0;
+        });
+    }
+
+    pub fn set_len(&mut self, len: usize) {
+        self.tracks.iter_mut().for_each(|track| {
+            track.set_len(len);
         });
     }
 }
@@ -738,6 +755,9 @@ impl Sequencer {
                             } else {
                                 ctx.queued_pattern_id = idx;
                             }
+                        },
+                        Command::SetPatternLength(len) => {
+                            ctx.patterns[ctx.pattern_id].set_len(len);
                         },
                         _ => ()
                     }

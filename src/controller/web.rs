@@ -34,6 +34,8 @@ enum MessageType {
     RemovePattern,
     #[serde(rename = "select_pattern")]
     SelectPattern,
+    #[serde(rename = "set_pattern_length")]
+    SetPatternLength,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -51,7 +53,7 @@ pub struct WebController {
 impl WebController {
     pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<State>) -> Self {
         Self {
-            addr: "127.0.0.1:8080".parse().unwrap(),
+            addr: "0.0.0.0:8080".parse().unwrap(),
             cmd_tx_ch,
             state_rx_ch,
         }
@@ -217,6 +219,10 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
                                         MessageType::SelectPattern => {
                                             let pattern_id = payload.get("patternId").unwrap().as_i64().unwrap() as usize;
                                             cmd_tx_ch.send(Command::SelectPattern(pattern_id)).unwrap();
+                                        },
+                                        MessageType::SetPatternLength => {
+                                            let length = payload.get("length").unwrap().as_i64().unwrap() as usize;
+                                            cmd_tx_ch.send(Command::SetPatternLength(length)).unwrap();
                                         },
                                         _ => {
                                             println!("[{}] Received unknown message: {}", peer, &text);
