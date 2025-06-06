@@ -49,6 +49,8 @@ enum MessageType {
     ListSamples,
     #[serde(rename = "set_track_sample")]
     SetTrackSample,
+    #[serde(rename = "add_track")]
+    AddTrack,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -199,6 +201,9 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
                     let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
                     let sample_path = payload.get("samplePath").unwrap().as_str().unwrap();
                     cmd_tx_ch.send(Command::SetTrackSample(track_idx, sample_path.to_string()))?;
+                },
+                MessageType::AddTrack => {
+                    cmd_tx_ch.send(Command::AddTrack)?;
                 },
                 _ => {
                     return Err(format!("Received unknown command: {:?}", message).into())

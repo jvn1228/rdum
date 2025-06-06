@@ -60,7 +60,8 @@ pub enum Command {
     ListSamples,
     // Pattern program commands
     SetDivision(Division),
-    AddTrack(String),
+    // Add track uses the last track's sample
+    AddTrack,
     SetTrackSample(usize, String),
     Unspecified,
 }
@@ -490,17 +491,22 @@ impl Context {
             tracks: saved_pattern.tracks.iter().filter_map(
                 |track|
                 if let Ok(sink) = Sink::try_new(&self.stream) {
-                    if let Ok(mut t) = Track::new(
+                    match Track::new(
                         track.slots.len(),
                         track.sample_path.clone(),
                         Arc::new(sink)
                     ) {
-                        t.slots = track.slots.clone();
-                        Some(t)
-                    } else {
-                        None
+                        Ok(mut t) => {
+                            t.slots = track.slots.clone();
+                            Some(t)
+                        },
+                        Err(e) => {
+                            println!("Failed to create track: {}", e);
+                            None
+                        }
                     }
                 } else {
+                    println!("Failed to create sink");
                     None
                 }
             ).collect(),
@@ -1046,8 +1052,14 @@ impl Sequencer {
                         Command::ListSamples => {
                             ctx.send_file_state(FileType::Sample);
                         },
-                        Command::AddTrack(sample_path) => {
-                            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, sample_path).unwrap();
+                        Command::AddTrack => {
+                            let last_sample = ctx.patterns[ctx.pattern_id].tracks.last().unwrap().sample_path.clone();
+                            let old_len = ctx.patterns[ctx.pattern_id].tracks.len();
+                            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, last_sample).unwrap();
+                            if ctx.playing {
+                                let last_trk_idx = ctx.patterns[ctx.pattern_id].tracks[old_len-1].idx;
+                                ctx.patterns[ctx.pattern_id].tracks[old_len].idx = last_trk_idx;
+                            }
                         },
                         Command::SetTrackSample(trk_id, sample_path) => {
                             ctx.patterns[ctx.pattern_id].set_track_sample(trk_id, sample_path).unwrap();

@@ -237,6 +237,7 @@ export class DrumMachineApp extends LitElement {
                 ></drum-track>
               `)}
             </div>
+            <md-filled-button @click=${this.handleAddTrack}>Add Track</md-filled-button>
           </div>
         </div>
       </div>
@@ -294,6 +295,10 @@ export class DrumMachineApp extends LitElement {
       slotIdx,
       velocity
     );
+  }
+
+  handleAddTrack() {
+    this.webSocketService.addTrack();
   }
 
   handleSampleChanged(e: CustomEvent) {

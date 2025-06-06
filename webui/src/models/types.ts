@@ -59,6 +59,7 @@ export enum MessageType {
   LIST_PATTERNS = 'list_patterns',
   LIST_SAMPLES = 'list_samples',
   SET_TRACK_SAMPLE = 'set_track_sample',
+  ADD_TRACK = 'add_track',
 }
 
 export interface WebSocketMessage {

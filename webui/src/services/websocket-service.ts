@@ -169,6 +169,10 @@ export class WebSocketService {
     this.sendMessage(types.MessageType.SET_TRACK_SAMPLE, payload);
   }
 
+  public addTrack(): void {
+    this.sendMessage(types.MessageType.ADD_TRACK, {});
+  }
+
   private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       const message: types.WebSocketMessage = {

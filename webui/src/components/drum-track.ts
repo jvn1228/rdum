@@ -1,9 +1,7 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, state } from 'lit/decorators.js';
 import { Track } from '../models/types';
 import './drum-pad';
-import '@material/web/select/filled-select.js';
-import '@material/web/select/select-option.js';
 
 @customElement('drum-track')
 export class DrumTrack extends LitElement {
@@ -45,28 +43,57 @@ export class DrumTrack extends LitElement {
       }
     }
 
-    md-filled-select {
-      max-width: 5rem;
+    .sample-select {
+      max-width: 12rem;
+      min-width: 8rem;
       margin-right: 2rem;
+      padding: 0.5rem 2rem 0.5rem 0.75rem;
+      border-radius: 4px;
+      border: 1px solid var(--md-sys-color-outline);
+      background-color: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      font-size: 0.875rem;
+      line-height: 1.5;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23666'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.5rem center;
+      background-size: 1.5rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .sample-select:focus {
+      outline: none;
+      border-color: var(--md-sys-color-primary);
+      box-shadow: 0 0 0 2px rgba(var(--md-sys-color-primary-rgb, 0, 0, 0), 0.1);
+    }
+    
+    .sample-select:hover {
+      border-color: var(--md-sys-color-on-surface-variant);
     }
   `;
+
+  @state() private selectedSample: string = '';
+
+  updated(changedProperties: Map<string, any>) {
+    if (changedProperties.has('track')) {
+      this.selectedSample = this.track.sample_path || '';
+    }
+  }
 
   render() {
     return html`
       <div class="track-row">
-        <div class="track-label">${this.track.name}</div>
-        <md-filled-select
+        <select
           id="sampleSelect"
-          value=${this.track.sample_path}
+          class="sample-select"
+          value=${this.selectedSample}
           @change=${this._handleSampleChange}
         >
-          ${this.samples.map((sample) => html`
-            <md-select-option
-              value=${sample}
-              ?selected=${this.track.sample_path === sample}
-            >${sample}</md-select-option>
-          `)}
-        </md-filled-select>
+          ${this.samples.map(sample => 
+            html`<option ?selected=${sample === this.selectedSample} value=${sample}>${sample}</option>`
+          )}
+        </select>
         <div class="pads-container">
           ${this.track.slots.map((vel, index) => {
             let idx = (index + 1) % this.track.slots.length;
