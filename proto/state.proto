@@ -34,6 +34,7 @@ message TrackState {
   string name = 2;
   uint64 idx = 3;
   uint64 len = 4;
+  string sample_path = 5;
 }
 
 // Command enum represents the possible commands that can be sent to the sequencer

@@ -231,7 +231,9 @@ export class DrumMachineApp extends LitElement {
                 <drum-track
                   .track=${track}
                   .trkId=${idx}
+                  .samples=${this.fileState.samples}
                   @track-pad-toggled=${this.handlePadToggled}
+                  @sample-changed=${this.handleSampleChanged}
                 ></drum-track>
               `)}
             </div>
@@ -292,6 +294,11 @@ export class DrumMachineApp extends LitElement {
       slotIdx,
       velocity
     );
+  }
+
+  handleSampleChanged(e: CustomEvent) {
+    const { trackId, samplePath } = e.detail;
+    this.webSocketService.setTrackSample(trackId, samplePath);
   }
 
   private _handlePatternLengthChange(e: Event) {

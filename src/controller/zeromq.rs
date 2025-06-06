@@ -26,6 +26,7 @@ pub fn serialize_state(state: &SeqState) -> Result<Vec<u8>, Box<dyn Error>> {
             name: track.name.clone(),
             idx: track.idx as u64,
             len: track.len as u64,
+            sample_path: track.sample_path.clone(),
         }).collect(),
         division: state.division as u32,
         default_len: state.default_len as u64,

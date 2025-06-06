@@ -27,6 +27,7 @@ export class WebSocketService {
       this.reconnectDelay = 1000; // Reset reconnect delay on successful connection
       // Send a list patterns request to rdum so we can refresh our file state
       this.listPatterns();
+      this.listSamples();
     });
 
     this.socket.addEventListener('message', (event) => {
@@ -154,6 +155,18 @@ export class WebSocketService {
 
   public listPatterns(): void {
     this.sendMessage(types.MessageType.LIST_PATTERNS, {})
+  }
+
+  public listSamples(): void {
+    this.sendMessage(types.MessageType.LIST_SAMPLES, {})
+  }
+
+  public setTrackSample(trackId: number, samplePath: string): void {
+    const payload: types.SetTrackSamplePayload = {
+      trackId,
+      samplePath
+    };
+    this.sendMessage(types.MessageType.SET_TRACK_SAMPLE, payload);
   }
 
   private sendMessage(type: types.MessageType, payload: any): void {

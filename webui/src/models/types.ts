@@ -3,6 +3,7 @@ export interface Track {
   slots: number[];
   idx: number;
   len: number;
+  sample_path: string;
 }
 
 export interface Pattern {
@@ -56,6 +57,8 @@ export enum MessageType {
   SAVE_PATTERN = 'save_pattern',
   LOAD_PATTERN = 'load_pattern',
   LIST_PATTERNS = 'list_patterns',
+  LIST_SAMPLES = 'list_samples',
+  SET_TRACK_SAMPLE = 'set_track_sample',
 }
 
 export interface WebSocketMessage {
@@ -92,5 +95,10 @@ export interface SetDivisionPayload {
 
 export interface LoadPatternPayload {
   fname: string;
+}
+
+export interface SetTrackSamplePayload {
+  trackId: number;
+  samplePath: string;
 }
 

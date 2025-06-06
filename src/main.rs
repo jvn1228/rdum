@@ -36,16 +36,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // seq.set_tempo(90);
     seq.set_division(sequencer::Division::E);
 
-    let trk_hat = seq.add_track("one_shots/kit0/hat.wav".to_string())?;
+    let trk_hat = seq.add_track("kit0/hat.wav".to_string())?;
     trk_hat.set_slots_vel(&[50, 0, 0, 0, 0, 127, 32, 0]);
 
-    let trk_kick = seq.add_track("one_shots/kit0/kick.wav".to_string())?;
+    let trk_kick = seq.add_track("kit0/kick.wav".to_string())?;
     trk_kick.set_slots_vel(&[127, 0, 0, 90, 127, 0, 0, 75]);
 
-    let trk_snare = seq.add_track("one_shots/kit0/snare.wav".to_string())?;
+    let trk_snare = seq.add_track("kit0/snare.wav".to_string())?;
     trk_snare.set_slots_vel(&[0, 0, 127, 0, 0, 47, 127, 0]);         
 
-    let trk_open_hat = seq.add_track("one_shots/kit0/open_hat.wav".to_string())?;
+    let trk_open_hat = seq.add_track("kit0/open_hat.wav".to_string())?;
     trk_open_hat.set_slots_vel(&[0, 0, 0, 0, 0, 0, 0, 127]);         
 
     let seq_ctx_handle = seq.ctx.clone();

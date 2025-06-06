@@ -45,6 +45,10 @@ enum MessageType {
     LoadPattern,
     #[serde(rename = "list_patterns")]
     ListPatterns,
+    #[serde(rename = "list_samples")]
+    ListSamples,
+    #[serde(rename = "set_track_sample")]
+    SetTrackSample,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -187,6 +191,14 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
                 },
                 MessageType::ListPatterns => {
                     cmd_tx_ch.send(Command::ListPatterns)?;
+                },
+                MessageType::ListSamples => {
+                    cmd_tx_ch.send(Command::ListSamples)?;
+                },
+                MessageType::SetTrackSample => {
+                    let track_idx = payload.get("trackId").unwrap().as_i64().unwrap() as usize;
+                    let sample_path = payload.get("samplePath").unwrap().as_str().unwrap();
+                    cmd_tx_ch.send(Command::SetTrackSample(track_idx, sample_path.to_string()))?;
                 },
                 _ => {
                     return Err(format!("Received unknown command: {:?}", message).into())

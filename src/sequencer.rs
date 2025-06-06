@@ -57,6 +57,7 @@ pub enum Command {
     // to state update patterns, all controllers
     // will receive the update
     ListPatterns,
+    ListSamples,
     // Pattern program commands
     SetDivision(Division),
     AddTrack(String),
@@ -106,6 +107,7 @@ pub struct TrackState {
     pub name: String,
     pub len: usize,
     pub idx: usize,
+    pub sample_path: String,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -138,7 +140,7 @@ pub struct BufferedSample {
 
 impl BufferedSample {
     fn new(fp: &str) -> Result<Arc<Self>, Box<dyn Error>> {
-        let sample = Self::load_from_file(&format!("{PWD}/{fp}").to_string())?;
+        let sample = Self::load_from_file(&format!("{PWD}/samples/{fp}").to_string())?;
         Ok(Arc::new(sample))
     }
 
@@ -366,6 +368,8 @@ impl Pattern {
         self.division = division;
     }
 
+    // sample_path is the relative location of the sample file to the samples directory
+    // This behavior is hardcoded for now
     pub fn add_track(&mut self, stream: Arc<OutputStreamHandle>, len: usize, sample_path: String) -> Result<(), Box<dyn Error>> {
         let sink = Sink::try_new(&stream)?;
         let sink = Arc::new(sink);
@@ -527,6 +531,61 @@ impl Context {
         }).collect();
         self.saved_patterns = patterns;
         self.send_file_state(FileType::Pattern);
+        Ok(())
+    }
+
+    // Iterates through samples folder, including subfolders in the path to better
+    // help organize the files into kits.
+    pub fn refresh_sample_files(&mut self) -> Result<(), Box<dyn Error>> {
+        let samples = std::fs::read_dir(format!("{PWD}/samples"))?;
+        let samples = samples.filter_map(|entry| {
+            if let Ok(entry) = entry {
+                // If it's a directory, we need to iterate through it
+                // and get a vector of paths like subfolder/file.wav
+                if entry.path().is_dir() {
+                    let subfolder = entry.path().to_str().unwrap().split('/').last().unwrap().to_string();
+                    if let Ok(files) = std::fs::read_dir(entry.path()) {
+                        let files = files.filter_map(|entry| {
+                            if let Ok(entry) = entry {
+                                if let Some(path) = entry.path().to_str() {
+                                    if entry.path().is_file() {
+                                        Some(format!("{}/{}", subfolder, path.split('/').last().unwrap()))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }).collect::<Vec<String>>();
+                        Some(files)
+                    } else {
+                        None
+                    }
+                // It's just a file
+                } else {
+                    if let Some(path) = entry.path().to_str() {
+                        if entry.path().is_file() {
+                            Some(vec![path.to_string().split('/').last().unwrap().to_string()])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect();
+
+        self.sample_files = samples;
+        self.send_file_state(FileType::Sample);
+
         Ok(())
     }
 
@@ -714,7 +773,10 @@ impl Sequencer {
         s.ctx.with_lock(|ctx| {
             if let Err(e) = ctx.refresh_saved_patterns() {
                 println!("Failed to refresh saved patterns: {}", e);
-            }   
+            }
+            if let Err(e) = ctx.refresh_sample_files() {
+                println!("Failed to refresh sample files: {}", e);
+            }
         });
         s
     }
@@ -882,7 +944,8 @@ impl Sequencer {
                         slots: t.slots.iter().map(|s| { s.velocity }).collect(),
                         name: t.name.clone(),
                         idx: t.idx,
-                        len: t.len
+                        len: t.len,
+                        sample_path: t.sample_path.clone(),
                     }
                 })
                 .collect();
@@ -979,6 +1042,9 @@ impl Sequencer {
                         },
                         Command::ListPatterns => {
                             ctx.send_file_state(FileType::Pattern);
+                        },
+                        Command::ListSamples => {
+                            ctx.send_file_state(FileType::Sample);
                         },
                         Command::AddTrack(sample_path) => {
                             ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, sample_path).unwrap();
