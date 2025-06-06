@@ -96,7 +96,7 @@ export class PatternSelector extends LitElement {
           Save Pattern
         </md-filled-button>
         <md-filled-select @change=${this._handleSavedPatternSelect}>
-          ${this.savedPatterns.map((pattern, index) => html`
+          ${this.savedPatterns.map((pattern) => html`
             <md-select-option .value=${pattern} .label=${pattern}>${pattern}</md-select-option>
           `)}
         </md-filled-select>

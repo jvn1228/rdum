@@ -12,7 +12,7 @@ import './transport-controls';
 import './theme-switch';
 import './machine-info';
 import { WebSocketService } from '../services/websocket-service';
-import { DrumMachineState } from '../models/types';
+import { DrumMachineState, FileState, FileStateMsg, FileType } from '../models/types';
 
 @customElement('drum-machine-app')
 export class DrumMachineApp extends LitElement {
@@ -28,7 +28,11 @@ export class DrumMachineApp extends LitElement {
     latency: 0,
     default_len: 16,
     queued_pattern_id: 0,
-    saved_patterns: [],
+  };
+
+  @state() private fileState: FileState = {
+    patterns: [],
+    samples: [],
   };
 
   // Since the backend doesn't use pattern IDs, we'll use a fixed value
@@ -40,6 +44,7 @@ export class DrumMachineApp extends LitElement {
     super();
     this.webSocketService = new WebSocketService();
     this.webSocketService.addStateListener(this.handleStateUpdate.bind(this));
+    this.webSocketService.addFileListener(this.handleFileStateUpdate.bind(this));
   }
 
   static styles = css`
@@ -174,7 +179,7 @@ export class DrumMachineApp extends LitElement {
               .patternLen=${this.drumState.pattern_len}
               .currentPatternId=${this.drumState.pattern_id}
               .queuedPatternId=${this.drumState.queued_pattern_id}
-              .savedPatterns=${this.drumState.saved_patterns}
+              .savedPatterns=${this.fileState.patterns}
               @pattern-selected=${this.handlePatternSelected}
               @add-pattern=${this.handleAddPattern}
               @save-pattern=${this._handleSavePattern}
@@ -242,6 +247,19 @@ export class DrumMachineApp extends LitElement {
 
   handleStateUpdate(state: DrumMachineState) {
     this.drumState = { ...state };
+  }
+
+  handleFileStateUpdate(stateMsg: FileStateMsg) {
+    switch (stateMsg.type) {
+      case FileType.PATTERN: {
+        this.fileState.patterns = stateMsg.files;
+        break;
+      }
+      case FileType.SAMPLE: {
+        this.fileState.samples = stateMsg.files;
+        break;
+      }
+    }
   }
 
   handlePatternSelected(e: CustomEvent) {

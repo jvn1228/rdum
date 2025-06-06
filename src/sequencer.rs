@@ -12,6 +12,29 @@ use std::hash::{Hash, Hasher};
 
 const PWD: &str = env!("CARGO_MANIFEST_DIR");
 
+#[derive(Clone)]
+pub enum StateUpdate {
+    FileState(FileState),
+    SeqState(SeqState),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum FileType {
+    #[serde(rename = "pattern")]
+    Pattern,
+    #[serde(rename = "sample")]
+    Sample,
+}
+
+/// Struct that allows updating listeners of samples
+/// and saved patterns
+#[derive(Debug, Clone, Serialize)]
+pub struct FileState {
+    #[serde(rename = "type")]
+    pub file_type: FileType,
+    pub files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub enum Command {
     // Sequencer playback commands
@@ -28,9 +51,16 @@ pub enum Command {
     RemovePattern(usize),
     SelectPattern(usize),
     SetPatternLength(usize),
-    SetDivision(Division),
     SavePattern,
     LoadPattern(String),
+    // A single controller can request this but due
+    // to state update patterns, all controllers
+    // will receive the update
+    ListPatterns,
+    // Pattern program commands
+    SetDivision(Division),
+    AddTrack(String),
+    SetTrackSample(usize, String),
     Unspecified,
 }
 
@@ -82,7 +112,7 @@ pub struct TrackState {
 /// Subset of sequencer state that be broadcast on a channel
 /// 
 /// Refer to the Context struct to see more descriptors
-pub struct State {
+pub struct SeqState {
     pub tempo: u8,
     pub trks: Vec<TrackState>,
     pub division: u8,
@@ -94,7 +124,6 @@ pub struct State {
     pub pattern_len: usize,
     pub pattern_name: String,
     pub queued_pattern_id: usize,
-    pub saved_patterns: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -229,6 +258,13 @@ impl Track {
         }
         self.len = len;
     }
+
+    pub fn set_sample(&mut self, sample_path: String) -> Result<(), Box<dyn Error>> {
+        let sample = BufferedSample::new(&sample_path)?;
+        self.sample = sample;
+        self.sample_path = sample_path;
+        Ok(())
+    }
 }
 
 /// ChokeGrp allows defining tracks that stop other tracks in
@@ -329,6 +365,19 @@ impl Pattern {
     pub fn set_division(&mut self, division: Division) {
         self.division = division;
     }
+
+    pub fn add_track(&mut self, stream: Arc<OutputStreamHandle>, len: usize, sample_path: String) -> Result<(), Box<dyn Error>> {
+        let sink = Sink::try_new(&stream)?;
+        let sink = Arc::new(sink);
+        sink.play();
+        let tracks = &mut self.tracks;
+        tracks.push(Track::new(len, sample_path, sink)?);
+        Ok(())
+    }
+
+    pub fn set_track_sample(&mut self, track_id: usize, sample_path: String) -> Result<(), Box<dyn Error>> {
+        self.tracks[track_id].set_sample(sample_path)
+    }
 }
 
 /// Struct that describes internal sequencer state that can be
@@ -339,6 +388,7 @@ pub struct Context {
     pub stream: Arc<OutputStreamHandle>,
     pub patterns: Vec<Pattern>,
     pub saved_patterns: Vec<String>,
+    pub sample_files: Vec<String>,
     pub pattern_id: usize,
     // If there is no new pattern for queueing it should be
     // the current pattern since the same pattern is queued
@@ -357,6 +407,12 @@ pub struct Context {
     command_rx_ch: mpsc::Receiver<Command>,
     last_cmd: Command,
     pub midi_conn: Option<Arc<MidiOutputConnection>>,
+    /// State transmission channel
+    /// 
+    /// Unfortunately the current standard Rust channel only
+    /// allows for a single consumer, so we can't broadcast state
+    /// updates to many listeners except via multiple channels
+    state_tx_ch: Vec<mpsc::Sender<StateUpdate>>,
 }
 
 impl Context {
@@ -470,7 +526,25 @@ impl Context {
             }
         }).collect();
         self.saved_patterns = patterns;
+        self.send_file_state(FileType::Pattern);
         Ok(())
+    }
+
+    /// Sends special state update for files only
+    /// This can be triggered if changes occurred in the file system
+    /// Also yes, yes the other state tx is in sequencer and I'm beginning
+    /// to think we should just lock the whole sequencer and forget
+    /// about the context
+    pub fn send_file_state(&self, file_type: FileType) {
+        for tx in &self.state_tx_ch {
+            let _ = tx.send(StateUpdate::FileState(FileState {
+                file_type: file_type.clone(),
+                files: match file_type {
+                    FileType::Pattern => self.saved_patterns.clone(),
+                    FileType::Sample => self.sample_files.clone(),
+                },
+            }));
+        }
     }
 }
 
@@ -592,12 +666,6 @@ pub struct Sequencer {
     // pulses per bar, always gonna be 24*4 for midi clock purposes
     ppb: u8,
     pulse_idx: u8,
-    /// State transmission channel
-    /// 
-    /// Unfortunately the current standard Rust channel only
-    /// allows for a single consumer, so we can't broadcast state
-    /// updates to many listeners except via multiple channels
-    state_tx_ch: Vec<mpsc::Sender<State>>,
     /// Command receiver channel
     /// 
     /// Multi producer single consumer means we can
@@ -622,6 +690,7 @@ impl Sequencer {
                 pattern_id: 0,
                 queued_pattern_id: 0,
                 saved_patterns: vec![],
+                sample_files: vec![],
                 default_len: 8,
                 tempo: 120,
                 // corresponds to 120 bpm
@@ -631,6 +700,7 @@ impl Sequencer {
                 last_cmd: Command::Unspecified,
                 midi_conn: None,
                 stream,
+                state_tx_ch: vec![]
             }),
             latency: Duration::ZERO,
             sleep_interval: Duration::from_secs_f32(1.0/24.0),
@@ -638,7 +708,6 @@ impl Sequencer {
             // afaik this is the rate to send midi clock signals
             ppb: 24*4,
             pulse_idx: 0,
-            state_tx_ch: vec![],
             command_tx_ch: command_tx,
             sleeper: spin_sleep::SpinSleeper::new(1_012_550_000).with_spin_strategy(spin_sleep::SpinStrategy::SpinLoopHint)
         };
@@ -685,12 +754,8 @@ impl Sequencer {
     /// playhead position of the track's slots.
     pub fn add_track(&mut self, sample_path: String) -> Result<TrackHandle, Box<dyn Error>> {
         self.ctx.with_lock(|ctx| {
-            let sink = Sink::try_new(&ctx.stream)?;
-            let sink = Arc::new(sink);
-            sink.play();
-            let tracks = &mut ctx.patterns[ctx.pattern_id].tracks;
-            tracks.push(Track::new(ctx.default_len, sample_path, sink)?);
-            Ok(TrackHandle::new(self.ctx.clone(), tracks.len() as u8 - 1))
+            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, sample_path)?;
+            Ok(TrackHandle::new(self.ctx.clone(), ctx.patterns[ctx.pattern_id].tracks.len() as u8 - 1))
         })
     }
 
@@ -789,9 +854,11 @@ impl Sequencer {
     }
 
     /// Creates a new channel to send state updates to
-    pub fn get_state_rx(&mut self) -> mpsc::Receiver<State> {
+    pub fn get_state_rx(&mut self) -> mpsc::Receiver<StateUpdate> {
         let (tx, rx) = mpsc::channel();
-        self.state_tx_ch.push(tx);
+        self.ctx.with_lock(|ctx| {
+            ctx.state_tx_ch.push(tx);
+        });
         rx
     }
 
@@ -820,8 +887,8 @@ impl Sequencer {
                 })
                 .collect();
 
-            for tx in &self.state_tx_ch {
-                let _ = tx.send(State {
+            for tx in &ctx.state_tx_ch {
+                let _ = tx.send(StateUpdate::SeqState(SeqState {
                     tempo: ctx.tempo,
                     trks: trks.clone(),
                     division: ctx.patterns[ctx.pattern_id].division as u8,
@@ -833,8 +900,7 @@ impl Sequencer {
                     pattern_len: ctx.patterns.len(),
                     pattern_name: ctx.patterns[ctx.pattern_id].name.clone(),
                     queued_pattern_id: ctx.queued_pattern_id,
-                    saved_patterns: ctx.saved_patterns.clone(),
-                });
+                }));
             }
         })
     }
@@ -910,6 +976,15 @@ impl Sequencer {
                             if let Err(e) = ctx.load_pattern(pattern_fname.clone()) {
                                 println!("Failed to load pattern: {}", e);
                             }
+                        },
+                        Command::ListPatterns => {
+                            ctx.send_file_state(FileType::Pattern);
+                        },
+                        Command::AddTrack(sample_path) => {
+                            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, sample_path).unwrap();
+                        },
+                        Command::SetTrackSample(trk_id, sample_path) => {
+                            ctx.patterns[ctx.pattern_id].set_track_sample(trk_id, sample_path).unwrap();
                         },
                         _ => ()
                     }

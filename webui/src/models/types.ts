@@ -23,11 +23,26 @@ export interface DrumMachineState {
   pattern_id: number;
   pattern_name: string;
   queued_pattern_id: number;
-  saved_patterns: string[];
+}
+
+export enum FileType {
+  PATTERN = 'pattern',
+  SAMPLE = 'sample',
+}
+
+export interface FileStateMsg {
+  type: FileType;
+  files: string[];
+}
+
+export interface FileState {
+  patterns: string[];
+  samples: string[];
 }
 
 export enum MessageType {
   STATE_UPDATE = 'state_update',
+  FILE_STATE_UPDATE = 'file_state_update',
   SET_SLOT_VELOCITY = 'set_slot_velocity',
   CHANGE_PATTERN = 'change_pattern',
   PLAY_SEQUENCER = 'play_sequencer',
@@ -40,6 +55,7 @@ export enum MessageType {
   SET_DIVISION = 'set_division',
   SAVE_PATTERN = 'save_pattern',
   LOAD_PATTERN = 'load_pattern',
+  LIST_PATTERNS = 'list_patterns',
 }
 
 export interface WebSocketMessage {

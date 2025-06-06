@@ -4,13 +4,15 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use async_tungstenite::{tokio::accept_async, tungstenite::Message};
 use futures::{SinkExt, StreamExt};
-use crate::sequencer::{Command, State, Division};
+use crate::sequencer::{Command, SeqState, StateUpdate};
 use serde_json;
 use serde;
 use std::error::Error;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 enum MessageType {
+    #[serde(rename = "file_state_update")]
+    FileStateUpdate,
     #[serde(rename = "state_update")]
     StateUpdate,
     #[serde(rename = "play_sequencer")]
@@ -41,6 +43,8 @@ enum MessageType {
     SavePattern,
     #[serde(rename = "load_pattern")]
     LoadPattern,
+    #[serde(rename = "list_patterns")]
+    ListPatterns,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -52,11 +56,11 @@ struct WebSocketMessage {
 pub struct WebController {
     addr: SocketAddr,
     cmd_tx_ch: mpsc::Sender<Command>,
-    state_rx_ch: mpsc::Receiver<State>,
+    state_rx_ch: mpsc::Receiver<StateUpdate>,
 }
 
 impl WebController {
-    pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<State>) -> Self {
+    pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<StateUpdate>) -> Self {
         Self {
             addr: "0.0.0.0:8080".parse().unwrap(),
             cmd_tx_ch,
@@ -78,7 +82,7 @@ impl WebController {
             println!("WebSocket server listening on: {}", addr);
             
             // Create a channel for state distribution in the async context
-            let (state_broadcaster_tx, _) = broadcast::channel::<State>(100);
+            let (state_broadcaster_tx, _) = broadcast::channel::<StateUpdate>(100);
             let state_broadcaster_tx_clone = state_broadcaster_tx.clone();
             
             // Start a task to receive states from the sync channel and broadcast them
@@ -181,6 +185,9 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
                     let fname = payload.get("fname").unwrap().as_str().unwrap();
                     cmd_tx_ch.send(Command::LoadPattern(fname.to_string()))?;
                 },
+                MessageType::ListPatterns => {
+                    cmd_tx_ch.send(Command::ListPatterns)?;
+                },
                 _ => {
                     return Err(format!("Received unknown command: {:?}", message).into())
                 }
@@ -194,7 +201,7 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
     Ok(())
 }
 
-async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<State>, cmd_tx_ch: mpsc::Sender<Command>) {
+async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<StateUpdate>, cmd_tx_ch: mpsc::Sender<Command>) {
     let peer = stream.peer_addr().unwrap();
     println!("Starting WebSocket handling for {}", peer);
     
@@ -216,9 +223,17 @@ async fn handle_connection(stream: TcpStream, mut state_rx: broadcast::Receiver<
             state_result = state_rx.recv() => {
                 match state_result {
                     Ok(state) => {
+                        let msg_type = match state {
+                            StateUpdate::FileState(_) => MessageType::FileStateUpdate,
+                            StateUpdate::SeqState(_) => MessageType::StateUpdate,
+                        };
+                        let payload = match state {
+                            StateUpdate::FileState(file_state) => serde_json::to_value(file_state).unwrap(),
+                            StateUpdate::SeqState(seq_state) => serde_json::to_value(seq_state).unwrap(),
+                        };
                         let message = WebSocketMessage {
-                            msg_type: MessageType::StateUpdate,
-                            payload: serde_json::to_value(state).unwrap(),
+                            msg_type,
+                            payload,
                         };
                         let message_json = serde_json::to_string(&message).unwrap();
                         if let Err(e) = ws_sender.send(Message::Text(message_json.into())).await {

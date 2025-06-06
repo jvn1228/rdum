@@ -1,10 +1,9 @@
-use crate::sequencer::{State, Command, TrackState, Division};
+use crate::sequencer::{SeqState, Command, Division, StateUpdate};
 use prost::Message;
 use std::error::Error;
 use std::convert::TryFrom;
 use zmq;
 use prost_types;
-use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::thread;
 
@@ -17,8 +16,8 @@ pub mod state {
 use state::command_message;
 use state::Command as ProtoCommand;
 
-/// Serializes a sequencer::State into a Protocol Buffers message
-pub fn serialize_state(state: &State) -> Result<Vec<u8>, Box<dyn Error>> {
+/// Serializes a sequencer::SeqState into a Protocol Buffers message
+pub fn serialize_state(state: &SeqState) -> Result<Vec<u8>, Box<dyn Error>> {
     // Convert the Rust State to the Protocol Buffer State
     let proto_state = state::State {
         tempo: state.tempo as u32,
@@ -74,7 +73,7 @@ fn command_to_proto_message(cmd: &Command) -> state::CommandMessage {
 }
 
 /// Send the serialized state over ZeroMQ
-pub fn send_state(socket: &zmq::Socket, state: &State) -> Result<(), Box<dyn Error>> {
+pub fn send_state(socket: &zmq::Socket, state: &SeqState) -> Result<(), Box<dyn Error>> {
     let serialized = serialize_state(state)?;
     socket.send(&serialized, 0)?;
     Ok(())
@@ -157,17 +156,17 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
 pub struct ZeroMQController {
     addr: String,
     cmd_tx_ch: mpsc::Sender<Command>,
-    state_rx_ch: mpsc::Receiver<State>,
-    last_state: State,
+    state_rx_ch: mpsc::Receiver<StateUpdate>,
+    last_state: SeqState,
 }
 
 impl ZeroMQController {
-    pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<State>) -> Self {
+    pub fn new(cmd_tx_ch: mpsc::Sender<Command>, state_rx_ch: mpsc::Receiver<StateUpdate>) -> Self {
         Self {
             addr: "tcp://*:5555".to_string(),
             cmd_tx_ch,
             state_rx_ch,
-            last_state: State::default(),
+            last_state: SeqState::default(),
         }
     }
 
@@ -183,7 +182,10 @@ impl ZeroMQController {
         
         loop {
             if let Ok(state) = self.state_rx_ch.try_recv() {
-                self.last_state = state;
+                match state {
+                    StateUpdate::SeqState(state) => self.last_state = state,
+                    _ => {}
+                }
             }
             
             // Poll with zero timeout for non-blocking behavior

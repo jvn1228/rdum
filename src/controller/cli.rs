@@ -18,23 +18,23 @@ use ratatui::{
 
 #[derive(Debug)]
 pub struct CLIController {
-    state_rx: mpsc::Receiver<sequencer::State>,
+    state_rx: mpsc::Receiver<sequencer::StateUpdate>,
     cmd_tx: mpsc::Sender<sequencer::Command>,
     exit: bool,
     refresh_interval: Duration,
     last_refresh: Instant,
-    last_state: sequencer::State,
+    last_state: sequencer::SeqState,
 }
 
 impl CLIController {
-    pub fn new(rx: mpsc::Receiver<sequencer::State>, tx: mpsc::Sender<sequencer::Command>) -> Self {
+    pub fn new(rx: mpsc::Receiver<sequencer::StateUpdate>, tx: mpsc::Sender<sequencer::Command>) -> Self {
         CLIController {
             state_rx: rx,
             cmd_tx: tx,
             exit: false,
             refresh_interval: Duration::from_secs_f32(1.0/12.0),
             last_refresh: Instant::now(),
-            last_state: sequencer::State::default()
+            last_state: sequencer::SeqState::default()
         }
     }
 
@@ -47,7 +47,10 @@ impl CLIController {
         while !self.exit {
             let now = Instant::now();
             if let Ok(state) = self.state_rx.try_recv() {
-                self.last_state = state;
+                match state {
+                    sequencer::StateUpdate::SeqState(state) => self.last_state = state,
+                    _ => {}
+                }
             }
             if now.duration_since(self.last_refresh) > self.refresh_interval {
                 terminal.draw(|frame| self.draw(frame))?;

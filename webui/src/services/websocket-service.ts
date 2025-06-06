@@ -4,7 +4,8 @@ export class WebSocketService {
   private socket: WebSocket | null = null;
   private url: string;
   private reconnectDelay: number = 1000;
-  private listeners: ((state: types.DrumMachineState) => void)[] = [];
+  private state_listeners: ((state: types.DrumMachineState) => void)[] = [];
+  private file_listeners: ((state: types.FileStateMsg) => void)[] = [];
 
   constructor(url?: string) {
     if (url) {
@@ -24,6 +25,8 @@ export class WebSocketService {
     this.socket.addEventListener('open', () => {
       console.log('WebSocket connection established');
       this.reconnectDelay = 1000; // Reset reconnect delay on successful connection
+      // Send a list patterns request to rdum so we can refresh our file state
+      this.listPatterns();
     });
 
     this.socket.addEventListener('message', (event) => {
@@ -33,7 +36,13 @@ export class WebSocketService {
         // Case 1: The message is a formatted WebSocketMessage with type and payload
         if (data.type && data.type === types.MessageType.STATE_UPDATE && data.payload) {
           const state = data.payload as types.DrumMachineState;
-          this.notifyListeners(state);
+          this.notifyStateListeners(state);
+          return;
+        }
+
+        if (data.type && data.type === types.MessageType.FILE_STATE_UPDATE && data.payload) {
+          const fileStateMsg = data.payload as types.FileStateMsg;
+          this.notifyFileListeners(fileStateMsg);
           return;
         }
         
@@ -52,7 +61,7 @@ export class WebSocketService {
             data.tempo !== undefined) {
           const state = data as types.DrumMachineState;
           console.log('Received state update:', state);
-          this.notifyListeners(state);
+          this.notifyStateListeners(state);
           return;
         }
         
@@ -143,6 +152,10 @@ export class WebSocketService {
     this.sendMessage(types.MessageType.LOAD_PATTERN, payload);
   }
 
+  public listPatterns(): void {
+    this.sendMessage(types.MessageType.LIST_PATTERNS, {})
+  }
+
   private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       const message: types.WebSocketMessage = {
@@ -156,14 +169,26 @@ export class WebSocketService {
   }
 
   public addStateListener(listener: (state: types.DrumMachineState) => void): void {
-    this.listeners.push(listener);
+    this.state_listeners.push(listener);
   }
 
   public removeStateListener(listener: (state: types.DrumMachineState) => void): void {
-    this.listeners = this.listeners.filter(l => l !== listener);
+    this.state_listeners = this.state_listeners.filter(l => l !== listener);
   }
 
-  private notifyListeners(state: types.DrumMachineState): void {
-    this.listeners.forEach(listener => listener(state));
+  private notifyStateListeners(state: types.DrumMachineState): void {
+    this.state_listeners.forEach(listener => listener(state));
+  }
+
+  public addFileListener(listener: (stateMsg: types.FileStateMsg) => void): void {
+    this.file_listeners.push(listener);
+  }
+
+  public removeFileListener(listener: (stateMsg: types.FileStateMsg) => void): void {
+    this.file_listeners = this.file_listeners.filter(l => l !== listener);
+  }
+
+  private notifyFileListeners(stateMsg: types.FileStateMsg): void {
+    this.file_listeners.forEach(listener => listener(stateMsg));
   }
 }

@@ -4,7 +4,17 @@ package rdum.state;
 
 import "google/protobuf/duration.proto";
 
-// Protocol buffers schema generated from sequencer::State struct
+enum FileType {
+    PATTERN = 0;
+    SAMPLE = 1;
+}
+
+message FileState {
+    FileType file_type = 1;
+    repeated string files = 2;
+}
+
+// Protocol buffers schema generated from sequencer::SeqState struct
 message State {
   uint32 tempo = 1;
   repeated TrackState trks = 3;
