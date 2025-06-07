@@ -4,7 +4,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use async_tungstenite::{tokio::accept_async, tungstenite::Message};
 use futures::{SinkExt, StreamExt};
-use crate::sequencer::{Command, SeqState, StateUpdate};
+use crate::sequencer::{Command, StateUpdate, Swing};
 use serde_json;
 use serde;
 use std::error::Error;
@@ -51,6 +51,8 @@ enum MessageType {
     SetTrackSample,
     #[serde(rename = "add_track")]
     AddTrack,
+    #[serde(rename = "set_swing")]
+    SetSwing,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -204,6 +206,10 @@ fn handle_command(cmd_tx_ch: mpsc::Sender<Command>, message: WebSocketMessage) -
                 },
                 MessageType::AddTrack => {
                     cmd_tx_ch.send(Command::AddTrack)?;
+                },
+                MessageType::SetSwing => {
+                    let swing = payload.get("swing").unwrap().as_i64().unwrap();
+                    cmd_tx_ch.send(Command::SetSwing(Swing::from(swing)))?;
                 },
                 _ => {
                     return Err(format!("Received unknown command: {:?}", message).into())

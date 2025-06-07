@@ -24,6 +24,7 @@ export interface DrumMachineState {
   pattern_id: number;
   pattern_name: string;
   queued_pattern_id: number;
+  swing: number;
 }
 
 export enum FileType {
@@ -60,6 +61,7 @@ export enum MessageType {
   LIST_SAMPLES = 'list_samples',
   SET_TRACK_SAMPLE = 'set_track_sample',
   ADD_TRACK = 'add_track',
+  SET_SWING = 'set_swing',
 }
 
 export interface WebSocketMessage {
@@ -103,3 +105,6 @@ export interface SetTrackSamplePayload {
   samplePath: string;
 }
 
+export interface SetSwingPayload {
+  swing: number;
+}

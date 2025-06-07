@@ -28,6 +28,7 @@ export class DrumMachineApp extends LitElement {
     latency: 0,
     default_len: 16,
     queued_pattern_id: 0,
+    swing: 0,
   };
 
   @state() private fileState: FileState = {
@@ -190,9 +191,11 @@ export class DrumMachineApp extends LitElement {
             <transport-controls
               .isPlaying=${this.drumState.playing}
               .tempo=${this.drumState.tempo}
+              .swing=${this.drumState.swing}
               @play=${this.handlePlay}
               @stop=${this.handleStop}
               @tempo-change=${this.handleTempoChange}
+              @swing-change=${this._handleSwingChange}
             ></transport-controls>
           </div>
           
@@ -340,6 +343,11 @@ export class DrumMachineApp extends LitElement {
   private _handleLoadPattern(e: CustomEvent) {
     const { fname } = e.detail;
     this.webSocketService.loadPattern(fname);
+  }
+
+  private _handleSwingChange(e: CustomEvent) {
+    const { swing } = e.detail;
+    this.webSocketService.setSwing(swing);
   }
   
   _handleThemeChanged(e: CustomEvent) {

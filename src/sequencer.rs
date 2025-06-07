@@ -58,6 +58,7 @@ pub enum Command {
     // will receive the update
     ListPatterns,
     ListSamples,
+    SetSwing(Swing),
     // Pattern program commands
     SetDivision(Division),
     // Add track uses the last track's sample
@@ -102,6 +103,29 @@ impl From<i64> for Division {
     }
 }
 
+/// Loosely defined swing offset from the straight rhythm
+/// The math must account for the division as well
+/// calling for judicious use of floor
+/// Prefer to round down since swing offset needs to be
+/// clamped to no more than the pulses allotted to a beat
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash)]
+pub enum Swing {
+    Full = 2,
+    Half = 1,
+    Off = 0,
+}
+
+impl From<i64> for Swing {
+    fn from(value: i64) -> Self {
+        match value {
+            2 => Swing::Full,
+            1 => Swing::Half,
+            0 => Swing::Off,
+            _ => Swing::Off,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct TrackState {
     pub slots: Vec<u8>,
@@ -127,6 +151,7 @@ pub struct SeqState {
     pub pattern_len: usize,
     pub pattern_name: String,
     pub queued_pattern_id: usize,
+    pub swing: u8,
 }
 
 #[derive(Clone)]
@@ -401,6 +426,10 @@ pub struct Context {
     pub queued_pattern_id: usize,
     /// It's the default length of a new track, unit is beats
     pub default_len: usize,
+    /// swing amount
+    pub swing: Swing,
+    /// actual swing offset from beat
+    pub swing_offset: u8,
     /// beats per minutes
     tempo: u8,
     /// calculated based on tempo, the length of one pulse of the sequencer
@@ -440,6 +469,12 @@ impl Context {
             let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
             conn.send(&[0xFC]).unwrap();
         }
+    }
+
+    pub fn set_swing(&mut self, swing: Swing) {
+        self.swing = swing;
+        // this truncates the decimal so is equivalent to floor
+        self.swing_offset = self.swing as u8 * (16 / self.patterns[self.pattern_id].division as u8);
     }
 
     pub fn reset_playheads(&mut self) {
@@ -757,6 +792,8 @@ impl Sequencer {
                 saved_patterns: vec![],
                 sample_files: vec![],
                 default_len: 8,
+                swing: Swing::Off,
+                swing_offset: 0,
                 tempo: 120,
                 // corresponds to 120 bpm
                 pulse_interval: Duration::from_secs_f32(2.5/120.0),
@@ -854,13 +891,32 @@ impl Sequencer {
                     }
                 }
 
-                // hmm might have to create a spare vec of pulses where 1 is trigger to handle swing patterns
-                // and then in fact we might have to move that tracking to the track
                 let pattern = &mut ctx.patterns[ctx.pattern_id];
-                if self.pulse_idx % (self.ppb / pattern.division as u8) == 0 {
-                    let mut triggered_ids: Vec<usize> = vec![];
-                    let tracks = &mut pattern.tracks;
-                    for (i, t) in tracks.into_iter().enumerate() {
+
+                // We use this later to see if we need to choke
+                // any track
+                let mut triggered_ids: Vec<usize> = vec![];
+                let tracks = &mut pattern.tracks;
+
+                for (i, t) in tracks.into_iter().enumerate() {
+                    // If we're on an odd beat we need to swing it
+                    // ie 1 triplet 2. Midi pulse remains on the straight
+                    let swing_offset = {
+                        if t.idx % 2 == 1 {
+                            ctx.swing_offset
+                        } else {
+                            0
+                        }
+                    };
+                    
+                    // To handle swing which delays a note, we actually
+                    // run the pulse idx to half a bar
+                    // Example: The 8th note is allotted 12 pulses
+                    // so the pulse counts 0-12 on a straight rhythm which is
+                    // ok for that. However, on swinging, we need to delay
+                    // to pulse 16 and so have to count two 8th notes 0-24
+                    let pulse_idx = self.pulse_idx % (self.ppb / pattern.division as u8 * 2);
+                    if pulse_idx == 0 || pulse_idx == swing_offset + (self.ppb / pattern.division as u8) {
                         let vel = &mut t.slots[t.idx].velocity;
                         if *vel > 0 {
                             Sequencer::append_sample_to_sink(t.sink.clone(), t.sample.clone(), vel);
@@ -869,14 +925,14 @@ impl Sequencer {
 
                         t.idx = (t.idx + 1) % t.len;
                     }
+                }
                     
-                    // Redefine as immutable to prevent triggering borrow checker
-                    let pattern = &ctx.patterns[ctx.pattern_id];
-                    let tracks = &pattern.tracks;
-                    for i in 0..tracks.len() {
-                        if pattern.is_trk_choked(&triggered_ids, i) {
-                            tracks[i].sink.skip_one();
-                        }
+                // Redefine as immutable to prevent triggering borrow checker
+                let pattern = &ctx.patterns[ctx.pattern_id];
+                let tracks = &pattern.tracks;
+                for i in 0..tracks.len() {
+                    if pattern.is_trk_choked(&triggered_ids, i) {
+                        tracks[i].sink.skip_one();
                     }
                 }
 
@@ -969,6 +1025,7 @@ impl Sequencer {
                     pattern_len: ctx.patterns.len(),
                     pattern_name: ctx.patterns[ctx.pattern_id].name.clone(),
                     queued_pattern_id: ctx.queued_pattern_id,
+                    swing: ctx.swing as u8,
                 }));
             }
         })
@@ -1063,6 +1120,9 @@ impl Sequencer {
                         },
                         Command::SetTrackSample(trk_id, sample_path) => {
                             ctx.patterns[ctx.pattern_id].set_track_sample(trk_id, sample_path).unwrap();
+                        },
+                        Command::SetSwing(swing) => {
+                            ctx.set_swing(swing);
                         },
                         _ => ()
                     }

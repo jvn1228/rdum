@@ -26,6 +26,7 @@ message State {
   uint64 pattern_len = 9;
   string pattern_name = 10;
   uint64 queued_pattern_id = 11;
+  uint32 swing = 12;
 }
 
 // TrackState represents a single track in the sequencer

@@ -173,6 +173,13 @@ export class WebSocketService {
     this.sendMessage(types.MessageType.ADD_TRACK, {});
   }
 
+  public setSwing(swing: number): void {
+    const payload: types.SetSwingPayload = {
+      swing
+    };
+    this.sendMessage(types.MessageType.SET_SWING, payload);
+  }
+
   private sendMessage(type: types.MessageType, payload: any): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       const message: types.WebSocketMessage = {

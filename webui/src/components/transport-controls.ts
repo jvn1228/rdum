@@ -4,12 +4,15 @@ import '@material/web/button/filled-button.js';
 import '@material/web/button/outlined-button.js';
 import '@material/web/icon/icon.js';
 import '@material/web/slider/slider.js';
+import '@material/web/select/filled-select.js';
+import '@material/web/select/select-option.js';
 
 
 @customElement('transport-controls')
 export class TransportControls extends LitElement {
   @property({ type: Boolean }) isPlaying = false;
   @property({ type: Number }) tempo = 120;
+  @property({ type: Number }) swing = 0;
 
   static styles = css`
     :host {
@@ -101,6 +104,14 @@ export class TransportControls extends LitElement {
           ></md-slider>
           <div class="tempo-value">${this.tempo} BPM</div>
         </div>
+
+        <div class="swing-control">
+          <md-filled-select label="Swing" value=${this.swing} @change=${this._handleSwingChange}>
+            <md-select-option value="0">Off</md-select-option>
+            <md-select-option value="1">50%</md-select-option>
+            <md-select-option value="2">100%</md-select-option>
+          </md-filled-select>
+        </div>
       </div>
     `;
   }
@@ -123,6 +134,15 @@ export class TransportControls extends LitElement {
     const newTempo = parseInt((e.target as HTMLInputElement).value);
     this.dispatchEvent(new CustomEvent('tempo-change', {
       detail: { tempo: newTempo },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  _handleSwingChange(e: CustomEvent) {
+    const newSwing = parseInt((e.target as HTMLInputElement).value);
+    this.dispatchEvent(new CustomEvent('swing-change', {
+      detail: { swing: newSwing },
       bubbles: true,
       composed: true
     }));
