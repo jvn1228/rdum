@@ -9,23 +9,37 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrackState:
-    slots: list[int]
-    name: str
+    slots: list[int] = field(default_factory=list)
+    name: str = ""
+    idx: int = 0
+    len: int = 0
+    sample_path: str = ""
+
+    def __post_init__(self):
+        self.idx = int(self.idx)
+        self.len = int(self.len)
 
 @dataclass
 class State:
     tempo: int = 120
-    trk_idx: int = 0
     trks: list[TrackState] = field(default_factory=list)
-    division: int = 4
-    len: int = 16
+    division: int = 8
+    default_len: int = 8
     latency: float = 0.0
     playing: bool = False
+    pattern_id: int = 0
+    pattern_len: int = 8
+    pattern_name: str = ""
+    queued_pattern_id: int = 0
+    swing: int = 0
 
     def __post_init__(self):
         self.trks = [TrackState(**trk) for trk in self.trks]
-        self.len = int(self.len)
-        self.trk_idx = int(self.trk_idx)
+        self.division = int(self.division)
+        self.default_len = int(self.default_len)
+        self.pattern_len = int(self.pattern_len)
+        self.queued_pattern_id = int(self.queued_pattern_id)
+        self.swing = int(self.swing)
 
 class ZMQChannel:
     """Receives and decodes ZMQ messages from RDUM"""
