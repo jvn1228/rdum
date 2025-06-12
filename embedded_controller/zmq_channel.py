@@ -95,6 +95,65 @@ class ZMQChannel:
             logger.error(f"Error receiving state: {e}")
             return None
     
+    def send_command(self, command_type, **kwargs):
+        """Send a command to the ZMQ server
+        
+        Args:
+            command_type: The Command enum value to send
+            **kwargs: Command-specific arguments
+        
+        Returns:
+            bool: True if the command was sent successfully, False otherwise
+        """
+        try:
+            # Create the command message
+            cmd_msg = self.state_pb2.CommandMessage()
+            cmd_msg.command_type = command_type
+            
+            # Set command-specific arguments
+            if command_type == self.state_pb2.COMMAND_SET_TEMPO and 'tempo' in kwargs:
+                cmd_msg.tempo = kwargs['tempo']
+            elif command_type == self.state_pb2.COMMAND_SET_PATTERN and 'pattern_index' in kwargs:
+                cmd_msg.pattern_index = kwargs['pattern_index']
+            elif command_type == self.state_pb2.COMMAND_SET_DIVISION and 'division' in kwargs:
+                cmd_msg.division = kwargs['division']
+            elif command_type == self.state_pb2.COMMAND_PLAY_SOUND and 'track_index' in kwargs and 'velocity' in kwargs:
+                play_sound_args = self.state_pb2.PlaySoundArgs(
+                    track_index=kwargs['track_index'],
+                    velocity=kwargs['velocity']
+                )
+                cmd_msg.play_sound_args.CopyFrom(play_sound_args)
+            elif command_type == self.state_pb2.COMMAND_SET_SLOT_VELOCITY and 'track_index' in kwargs and 'slot_index' in kwargs:
+                slot_args = self.state_pb2.SlotArgs(
+                    track_index=kwargs['track_index'],
+                    slot_index=kwargs['slot_index'],
+                    velocity=kwargs['velocity']
+                )
+                cmd_msg.slot_args.CopyFrom(slot_args)
+            elif command_type == self.state_pb2.COMMAND_SET_TRACK_LENGTH and 'track_index' in kwargs and 'track_length' in kwargs:
+                track_length_args = self.state_pb2.TrackLengthArgs(
+                    track_index=kwargs['track_index'],
+                    track_length=kwargs['track_length']
+                )
+                cmd_msg.track_length_args.CopyFrom(track_length_args)
+            
+            # Serialize the command message
+            cmd_bytes = cmd_msg.SerializeToString()
+            
+            # Send the command
+            self.socket.send(cmd_bytes)
+            
+            # Wait for response (needed for REQ/REP pattern)
+            response = self.socket.recv()
+            
+            # Process response if needed (in this case, just log success)
+            logger.info(f"Command sent successfully: {self.state_pb2.Command.Name(command_type)}")
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error sending command: {e}")
+            return False
+    
     def close(self):
         """Close the ZMQ socket and context"""
         logger.info("Closing ZMQ connection")

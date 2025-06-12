@@ -1,4 +1,3 @@
-from codecs import IncrementalEncoder
 from dataclasses import dataclass, field
 import board
 import digitalio
@@ -13,6 +12,7 @@ from adafruit_mcp3xxx.analog_in import AnalogIn
 import busio
 import modules
 from modules import UIState
+from util import Pad
 
 # Set up logging
 logging.basicConfig(
@@ -54,32 +54,6 @@ spi = busio.SPI(clock=board.SCK, MISO=board.MISO, MOSI=board.MOSI)
 cs = digitalio.DigitalInOut(board.D5)
 mcp = MCP.MCP3008(spi, cs)
 
-class Pad:
-    """
-        Pad specific wrapper for adc channel.
-        When initialized, reads the value and uses that as
-        the zero point.
-        Value is floored at 0, even if it would be negative
-        with the offset.
-    """
-    def __init__(self, adc: AnalogIn):
-        self._adc = adc
-        self._offset = adc.value
-        # the adc library returns a 16-bit integer even though
-        # precision of the adc is only 10 bits
-        self._max = 2**16 - self._offset
-    
-    @property
-    def value(self) -> int:
-        return min(max(0, self._adc.value - self._offset), self._max)
-    
-    @property
-    def percent(self) -> int:
-        return self.value // self._max
-
-    def zero(self):
-        self._offset = self._adc.value
-
 class EmbeddedController:
     """
     Controller for embedded devices. Handles display and input.
@@ -110,18 +84,21 @@ class EmbeddedController:
         self._last_state = State()
         self._last_refresh: float = time.monotonic()
 
-        # current module activated
-        self._input_state = UIState()
-        self._modules: list[Module] = [modules.Status(self._input_state), modules.Playback()]
-        self._module_idx = 1
-
-        # Create and connect the state receiver
-        self._channel = ZMQChannel("tcp://192.168.68.73:5555")
+        # Create and connect the state receiver/command sender
+        self._channel = ZMQChannel("tcp://192.168.68.64:5555")
         if not self._channel.connect():
             sys.exit(1)
 
+        # current module activated
+        self._input_state = UIState()
+        self._modules: list[Module] = [
+            modules.Status(self._channel, self._input_state),
+            modules.Playback(self._channel, self._input_state)
+        ]
+        self._module_idx = 1
+
     def receive_state(self):
-        self._modules[self._module_idx].on_state_update(self._channel.receive_state())
+        self._modules[self._module_idx].receive_state()
 
     def receive_input(self):
         self._input_state.enc1_d = self._enc1.position - self._input_state.enc1_pos

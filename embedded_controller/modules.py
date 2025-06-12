@@ -1,10 +1,14 @@
-from typing_extensions import ParamSpecKwargs
 from widgets import *
 from PIL import ImageDraw, ImageFont
 from abc import ABC, abstractmethod
-from zmq_channel import State
+from zmq_channel import State, ZMQChannel
+from proto_gen import state_pb2
+
 from dataclasses import dataclass, field
 import util
+
+PAD_MAX: int = 6000
+PAD_THRESHOLD: int = 3000
 
 @dataclass
 class UIState:
@@ -26,12 +30,13 @@ class Module(ABC):
         pass
     
     @abstractmethod
-    def on_state_update(self):
+    def receive_state(self):
         pass
 
 class Status(Module):
-    def __init__(self, ui_state: UIState):
+    def __init__(self, channel: ZMQChannel, ui_state: UIState):
         super().__init__()
+        self._channel = channel
         self._ui_state = ui_state
 
         self._ip_text: Text = Text(util.get_ip())
@@ -66,7 +71,8 @@ class Status(Module):
     def render_secondary(self, draw: ImageDraw):
         self._secondary_widget.render(draw, 0, 0)
     
-    def on_state_update(self, state: State):
+    def receive_state(self):
+        state = self._channel.receive_state()
         self._tracks_text.text = str(len(state.trks))
 
     def on_input_update(self):
@@ -79,16 +85,21 @@ class Status(Module):
         self._pad_values_text2.text = str(self._ui_state.pad_values[4:])
 
 class Playback(Module):
-    def __init__(self):
+    def __init__(self, channel: ZMQChannel, ui_state: UIState):
         super().__init__()
+        self._channel = channel
+        self._ui_state = ui_state
         self._last_state = State()
         self._font = ImageFont.load_default()
     
-    def on_state_update(self, state: State):
-        self._last_state = state
+    def receive_state(self):
+        self._last_state = self._channel.receive_state()
 
     def on_input_update(self):
-        pass
+        pad1_val = self._ui_state.pad_values[0]
+        if pad1_val > PAD_THRESHOLD:
+            pad1_val = int(min(pad1_val, PAD_MAX) / PAD_MAX * 127)
+            self._channel.send_command(state_pb2.COMMAND_PLAY_SOUND, track_index=0, velocity=pad1_val)
     
     def render_primary(self, draw: ImageDraw):
         width = 128

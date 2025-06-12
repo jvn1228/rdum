@@ -48,32 +48,6 @@ pub fn serialize_state(state: &SeqState) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(buf)
 }
 
-/// Helper function to convert a Command enum to its Protocol Buffer representation with arguments
-fn command_to_proto_message(cmd: &Command) -> state::CommandMessage {
-    let mut message = state::CommandMessage {
-        command_type: match cmd {
-            Command::PlaySequencer => ProtoCommand::PlaySequencer,
-            Command::StopSequencer => ProtoCommand::StopSequencer,
-            Command::SetTempo(_) => ProtoCommand::SetTempo,
-            _ => ProtoCommand::Unspecified,
-        } as i32,
-        args: None,
-    };
-    
-    // Set the appropriate argument based on the command type
-    match cmd {
-        Command::SetTempo(tempo) => {
-            message.args = Some(command_message::Args::Tempo(*tempo as u32));
-        },
-        Command::SetDivision(div) => {
-            message.args = Some(command_message::Args::Division(div.clone() as u32));
-        },
-        _ => {}, // No arguments for other commands
-    }
-    
-    message
-}
-
 /// Send the serialized state over ZeroMQ
 pub fn send_state(socket: &zmq::Socket, state: &SeqState) -> Result<(), Box<dyn Error>> {
     let serialized = serialize_state(state)?;
@@ -110,20 +84,7 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
         },
         ProtoCommand::SetDivision => {
             if let Some(command_message::Args::Division(div_value)) = &proto_cmd.args {
-                // Convert the numeric division value to the Division enum
-                let division = match *div_value {
-                    2 => Division::H,
-                    3 => Division::QD,
-                    4 => Division::Q,
-                    6 => Division::ED,
-                    8 => Division::E,
-                    12 => Division::SD,
-                    16 => Division::S,
-                    24 => Division::TD,
-                    32 => Division::T,
-                    _ => return Err(format!("Invalid division value: {}", div_value).into()),
-                };
-                Command::SetDivision(division)
+                Command::SetDivision(div_value.to::<Division>())
             } else {
                 return Err("Missing division argument for SetDivision command".into());
             }
@@ -147,6 +108,53 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
                 Command::SetTrackLength(track_length_args.track_index as usize)
             } else {
                 return Err("Missing arguments for SetTrackLength command".into());
+            }
+        },
+        ProtoCommand::AddPattern => Command::AddPattern,
+        ProtoCommand::RemovePattern => {
+            if let Some(command_message::Args::PatternIndex(pattern_index)) = &proto_cmd.args {
+                Command::RemovePattern(pattern_index as usize)
+            } else {
+                return Err("Missing arguments for RemovePattern command".into());
+            }
+        },
+        ProtoCommand::SelectPattern => {
+            if let Some(command_message::Args::PatternIndex(pattern_index)) = &proto_cmd.args {
+                Command::SelectPattern(pattern_index as usize)
+            } else {
+                return Err("Missing arguments for SelectPattern command".into());
+            }
+        },
+        ProtoCommand::SetPatternLength => {
+            if let Some(command_message::Args::PatternLength(pattern_length)) = &proto_cmd.args {
+                Command::SetPatternLength(pattern_length as usize)
+            } else {
+                return Err("Missing arguments for SetPatternLength command".into());
+            }
+        },
+        ProtoCommand::SavePattern => Command::SavePattern,
+        ProtoCommand::LoadPattern => {
+            if let Some(command_message::Args::PatternName(pattern_fname)) = &proto_cmd.args {
+                Command::LoadPattern(pattern_fname.clone())
+            } else {
+                return Err("Missing arguments for LoadPattern command".into());
+            }
+        },
+        ProtoCommand::ListPatterns => Command::ListPatterns,
+        ProtoCommand::ListSamples => Command::ListSamples,
+        ProtoCommand::SetSwing => {
+            if let Some(command_message::Args::Swing(swing)) = &proto_cmd.args {
+                Command::SetSwing(Swing::from(swing))
+            } else {
+                return Err("Missing swing argument for SetSwing command".into());
+            }
+        },
+        ProtoCommand::AddTrack => Command::AddTrack,
+        ProtoCommand::SetTrackSample => {
+            if let Some(command_message::Args::TrackSampleArgs(track_sample_args)) = &proto_cmd.args {
+                Command::SetTrackSample(track_sample_args.track_index as usize, track_sample_args.sample_path.clone())
+            } else {
+                return Err("Missing arguments for SetTrackSample command".into());
             }
         },
         _ => return Err("Unspecified command type".into()),
