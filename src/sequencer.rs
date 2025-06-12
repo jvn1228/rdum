@@ -103,6 +103,24 @@ impl From<i64> for Division {
     }
 }
 
+impl From<u32> for Division {
+    fn from(value: u32) -> Self {
+        match value {
+            1 => Division::W,
+            2 => Division::H,
+            3 => Division::QD,
+            4 => Division::Q,
+            6 => Division::ED,
+            8 => Division::E,
+            12 => Division::SD,
+            16 => Division::S,
+            24 => Division::TD,
+            32 => Division::T,
+            _ => Division::W,
+        }
+    }
+}
+
 /// Loosely defined swing offset from the straight rhythm
 /// The math must account for the division as well
 /// calling for judicious use of floor
@@ -117,6 +135,17 @@ pub enum Swing {
 
 impl From<i64> for Swing {
     fn from(value: i64) -> Self {
+        match value {
+            2 => Swing::Full,
+            1 => Swing::Half,
+            0 => Swing::Off,
+            _ => Swing::Off,
+        }
+    }
+}
+
+impl From<u32> for Swing {
+    fn from(value: u32) -> Self {
         match value {
             2 => Swing::Full,
             1 => Swing::Half,
@@ -1111,8 +1140,9 @@ impl Sequencer {
                         },
                         Command::AddTrack => {
                             let last_sample = ctx.patterns[ctx.pattern_id].tracks.last().unwrap().sample_path.clone();
+                            let last_trk_len = ctx.patterns[ctx.pattern_id].tracks.last().unwrap().len;
                             let old_len = ctx.patterns[ctx.pattern_id].tracks.len();
-                            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), ctx.default_len, last_sample).unwrap();
+                            ctx.patterns[ctx.pattern_id].add_track(ctx.stream.clone(), last_trk_len, last_sample).unwrap();
                             if ctx.playing {
                                 let last_trk_idx = ctx.patterns[ctx.pattern_id].tracks[old_len-1].idx;
                                 ctx.patterns[ctx.pattern_id].tracks[old_len].idx = last_trk_idx;

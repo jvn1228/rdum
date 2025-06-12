@@ -1,4 +1,4 @@
-use crate::sequencer::{SeqState, Command, Division, StateUpdate};
+use crate::sequencer::{SeqState, Command, Division, Swing, StateUpdate};
 use prost::Message;
 use std::error::Error;
 use std::convert::TryFrom;
@@ -84,7 +84,7 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
         },
         ProtoCommand::SetDivision => {
             if let Some(command_message::Args::Division(div_value)) = &proto_cmd.args {
-                Command::SetDivision(div_value.to::<Division>())
+                Command::SetDivision(Division::from(*div_value))
             } else {
                 return Err("Missing division argument for SetDivision command".into());
             }
@@ -113,28 +113,28 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
         ProtoCommand::AddPattern => Command::AddPattern,
         ProtoCommand::RemovePattern => {
             if let Some(command_message::Args::PatternIndex(pattern_index)) = &proto_cmd.args {
-                Command::RemovePattern(pattern_index as usize)
+                Command::RemovePattern(*pattern_index as usize)
             } else {
                 return Err("Missing arguments for RemovePattern command".into());
             }
         },
         ProtoCommand::SelectPattern => {
             if let Some(command_message::Args::PatternIndex(pattern_index)) = &proto_cmd.args {
-                Command::SelectPattern(pattern_index as usize)
+                Command::SelectPattern(*pattern_index as usize)
             } else {
                 return Err("Missing arguments for SelectPattern command".into());
             }
         },
         ProtoCommand::SetPatternLength => {
             if let Some(command_message::Args::PatternLength(pattern_length)) = &proto_cmd.args {
-                Command::SetPatternLength(pattern_length as usize)
+                Command::SetPatternLength(*pattern_length as usize)
             } else {
                 return Err("Missing arguments for SetPatternLength command".into());
             }
         },
         ProtoCommand::SavePattern => Command::SavePattern,
         ProtoCommand::LoadPattern => {
-            if let Some(command_message::Args::PatternName(pattern_fname)) = &proto_cmd.args {
+            if let Some(command_message::Args::PatternFname(pattern_fname)) = &proto_cmd.args {
                 Command::LoadPattern(pattern_fname.clone())
             } else {
                 return Err("Missing arguments for LoadPattern command".into());
@@ -144,7 +144,7 @@ fn proto_message_to_command(proto_cmd: &state::CommandMessage) -> Result<Command
         ProtoCommand::ListSamples => Command::ListSamples,
         ProtoCommand::SetSwing => {
             if let Some(command_message::Args::Swing(swing)) = &proto_cmd.args {
-                Command::SetSwing(Swing::from(swing))
+                Command::SetSwing(Swing::from(*swing))
             } else {
                 return Err("Missing swing argument for SetSwing command".into());
             }

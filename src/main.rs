@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     for port in midi_out.ports() {
         println!("{}", port.id());
     }
-    let port = midi_out.find_port_by_id("1813427005".to_string()).unwrap();
-    seq.connect_midi(port).unwrap();
+    // let port = midi_out.find_port_by_id("1813427005".to_string()).unwrap();
+    // seq.connect_midi(port).unwrap();
 
     let seq_state_rx = seq.get_state_rx();
     let seq_cmd_tx = seq.get_command_tx();

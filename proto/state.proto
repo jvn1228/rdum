@@ -59,9 +59,8 @@ enum Command {
   COMMAND_LIST_PATTERNS = 15;
   COMMAND_LIST_SAMPLES = 16;
   COMMAND_SET_SWING = 17;
-  COMMAND_SET_DIVISION = 18;
-  COMMAND_ADD_TRACK = 19;
-  COMMAND_SET_TRACK_SAMPLE = 20;
+  COMMAND_ADD_TRACK = 18;
+  COMMAND_SET_TRACK_SAMPLE = 19;
 }
 
 // CommandMessage contains both the command type and any associated arguments
