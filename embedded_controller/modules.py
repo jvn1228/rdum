@@ -3,12 +3,15 @@ from PIL import ImageDraw, ImageFont
 from abc import ABC, abstractmethod
 from zmq_channel import State, ZMQChannel
 from proto_gen import state_pb2
+from util import Pi5Pixelbuf, Switch
 
 from dataclasses import dataclass, field
 import util
+import time
 
-PAD_MAX: int = 6000
-PAD_THRESHOLD: int = 3000
+PAD_MIN: int = 4000
+PAD_MAX: int = 40000
+PAD_THRESHOLD: int = 11000
 
 @dataclass
 class UIState:
@@ -19,6 +22,8 @@ class UIState:
     button1_pressed: bool = False
     button2_pressed: bool = False
     pad_values: list[int] = field(default_factory=list)
+    pad_armed: list[bool] = field(default_factory=list)
+    switch: Switch | None = None
 
 class Module(ABC):
     @abstractmethod
@@ -31,6 +36,10 @@ class Module(ABC):
     
     @abstractmethod
     def receive_state(self):
+        pass
+
+    @abstractmethod
+    def render_leds(self, pixels: Pi5Pixelbuf):
         pass
 
 class Status(Module):
@@ -47,6 +56,7 @@ class Status(Module):
         self._button2_text: Text = Text(str(self._ui_state.button2_pressed))
         self._pad_values_text1: Text = Text(str(self._ui_state.pad_values[:4]))
         self._pad_values_text2: Text = Text(str(self._ui_state.pad_values[4:]))
+        self._switch_text: Text = Text(str(self._ui_state.switch.value))
         
         self._primary_widget = VLayout([
             HLayout([Text("Enc1"), self._enc1_pos_text, Text("Enc2"), self._enc2_pos_text]),
@@ -62,6 +72,10 @@ class Status(Module):
             HLayout([
                 Text("Tracks:"),
                 self._tracks_text,
+            ]),
+            HLayout([
+                Text("Switch:"),
+                self._switch_text,
             ])
         ], border=True)
     
@@ -83,6 +97,10 @@ class Status(Module):
         self._button2_text.text = str(self._ui_state.button2_pressed)
         self._pad_values_text1.text = str(self._ui_state.pad_values[:4])
         self._pad_values_text2.text = str(self._ui_state.pad_values[4:])
+        self._switch_text.text = str(self._ui_state.switch.value)
+    
+    def render_leds(self, pixels: Pi5Pixelbuf):
+        pass
 
 class Playback(Module):
     def __init__(self, channel: ZMQChannel, ui_state: UIState):
@@ -96,9 +114,16 @@ class Playback(Module):
         self._last_state = self._channel.receive_state()
 
     def on_input_update(self):
+        sw_val = self._ui_state.switch.value
+        if self._ui_state.switch.changed:
+            if sw_val:
+                self._channel.send_command(state_pb2.COMMAND_PLAY_SEQUENCER)
+            else:
+                self._channel.send_command(state_pb2.COMMAND_STOP_SEQUENCER)
+
         pad1_val = self._ui_state.pad_values[0]
-        if pad1_val > PAD_THRESHOLD:
-            pad1_val = int(min(pad1_val, PAD_MAX) / PAD_MAX * 127)
+        if pad1_val < PAD_THRESHOLD and self._ui_state.pad_armed[0]:
+            pad1_val = int((PAD_MAX-pad1_val) / (PAD_MAX-PAD_MIN) * 127)
             self._channel.send_command(state_pb2.COMMAND_PLAY_SOUND, track_index=0, velocity=pad1_val)
     
     def render_primary(self, draw: ImageDraw):
@@ -172,4 +197,13 @@ class Playback(Module):
     
     def render_secondary(self, draw: ImageDraw):
         pass
-        
+
+    def render_leds(self, pixels: Pi5Pixelbuf):
+        for i, slot in enumerate(self._last_state.trks[0].slots):
+            pixel_idx = i % 8
+            if slot > 0:
+                pixels[pixel_idx] = (12,0,0)
+            else:
+                pixels[pixel_idx] = (0,0,0)
+            if self._last_state.trks[0].idx == i:
+                pixels[pixel_idx] = (0,0,12)

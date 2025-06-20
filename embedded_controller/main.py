@@ -12,7 +12,7 @@ from adafruit_mcp3xxx.analog_in import AnalogIn
 import busio
 import modules
 from modules import UIState
-from util import Pad
+from util import Pad, Pi5Pixelbuf, Switch
 
 # Set up logging
 logging.basicConfig(
@@ -49,10 +49,18 @@ encoder_sub = IncrementalEncoder(board.D22, board.D23)
 button_sub = digitalio.DigitalInOut(board.D27)
 button_sub.switch_to_input(pull=digitalio.Pull.UP)
 
+switch = digitalio.DigitalInOut(board.D6)
+switch.switch_to_input(pull=digitalio.Pull.UP)
+
 # adc
 spi = busio.SPI(clock=board.SCK, MISO=board.MISO, MOSI=board.MOSI)
 cs = digitalio.DigitalInOut(board.D5)
 mcp = MCP.MCP3008(spi, cs)
+
+# neopixel strip
+pixels = Pi5Pixelbuf(board.D12, 8, auto_write=True, byteorder="BGR")
+pixels.fill(0)
+pixels.show()
 
 class EmbeddedController:
     """
@@ -73,6 +81,8 @@ class EmbeddedController:
         self._pads = [Pad(AnalogIn(mcp, MCP.P0)), Pad(AnalogIn(mcp, MCP.P1)), Pad(AnalogIn(mcp, MCP.P2)), Pad(AnalogIn(mcp, MCP.P3)),
             Pad(AnalogIn(mcp, MCP.P4)), Pad(AnalogIn(mcp, MCP.P5)), Pad(AnalogIn(mcp, MCP.P6)), Pad(AnalogIn(mcp, MCP.P7))]
 
+        self._switch = Switch(switch)
+
         # Create blank image for drawing.
         # Make sure to create image with mode '1' for 1-bit color.
         self._image1 = Image.new("1", (self._oled1.width, self._oled1.height))
@@ -81,21 +91,24 @@ class EmbeddedController:
         self._image2 = Image.new("1", (self._oled2.width, self._oled2.height))
         self._draw2 = ImageDraw.Draw(self._image2)
 
+        self._pixels = pixels
+
         self._last_state = State()
         self._last_refresh: float = time.monotonic()
 
         # Create and connect the state receiver/command sender
-        self._channel = ZMQChannel("tcp://192.168.68.64:5555")
+        self._channel = ZMQChannel("tcp://192.168.68.59:5555")
         if not self._channel.connect():
             sys.exit(1)
 
         # current module activated
         self._input_state = UIState()
+        self._input_state.switch = self._switch
         self._modules: list[Module] = [
             modules.Status(self._channel, self._input_state),
             modules.Playback(self._channel, self._input_state)
         ]
-        self._module_idx = 1
+        self._module_idx = 0
 
     def receive_state(self):
         self._modules[self._module_idx].receive_state()
@@ -115,19 +128,23 @@ class EmbeddedController:
         self._input_state.button1_pressed = not self._button1.value
         self._input_state.button2_pressed = not self._button2.value
         self._input_state.pad_values = [pad.value for pad in self._pads]
+        self._input_state.pad_armed = [pad.armed for pad in self._pads]
         self._modules[self._module_idx].on_input_update()
 
     def render(self):
         self._draw1.rectangle((0, 0, self._oled1.width, self._oled1.height), fill=0)
         self._draw2.rectangle((0, 0, self._oled2.width, self._oled2.height), fill=0)
+        # self._pixels.fill(0)
 
         self._modules[self._module_idx].render_primary(self._draw1)
         self._modules[self._module_idx].render_secondary(self._draw2)
+        self._modules[self._module_idx].render_leds(self._pixels)
 
         self._oled1.image(self._image1)
         self._oled2.image(self._image2)
         self._oled1.show()
         self._oled2.show()
+        self._pixels.show()
 
     def run(self):
         while True:
@@ -148,5 +165,7 @@ if __name__ == "__main__":
         controller._oled1.show()
         controller._oled2.fill(0)
         controller._oled2.show()
+        pixels.fill(0)
+        pixels.show()
         # controller._channel.close()
         logger.info("Display cleared")

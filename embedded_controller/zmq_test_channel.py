@@ -166,6 +166,7 @@ class ZMQChannel:
             
             # Wait for response (needed for REQ/REP pattern)
             response = self.socket.recv()
+            print(response)
             
             # Process response if needed (in this case, just log success)
             logger.info(f"Command sent successfully: {self.state_pb2.Command.Name(command_type)}")
