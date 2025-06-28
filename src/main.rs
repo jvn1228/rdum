@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     for port in midi_out.ports() {
         println!("{}", port.id());
     }
-    // let port = midi_out.find_port_by_id("1813427005".to_string()).unwrap();
-    // seq.connect_midi(port).unwrap();
+    let port = midi_out.find_port_by_id("16:0".to_string()).unwrap();
+    seq.connect_midi(port).unwrap();
 
     let seq_state_rx = seq.get_state_rx();
     let seq_cmd_tx = seq.get_command_tx();
@@ -64,9 +64,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     seq.play();
-    thread::spawn(move || {
-        sequencer::Sequencer::run_sound_loop(seq);
-    });
+    // thread::spawn(move || {
+    //     sequencer::Sequencer::run_sound_loop(seq);
+    // });
     thread::spawn(move || {
         sequencer::Sequencer::run_command_loop(seq_ctx_handle);
     });                                                                                            
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Main loop with key detection
     loop {
         // Check for keypress events without blocking
-        if event::poll(Duration::from_millis(10)).unwrap() {
+        if event::poll(Duration::from_millis(0)).unwrap() {
             if let Event::Key(key_event) = event::read().unwrap() {
                 if key_event.code == KeyCode::Char('q') {
                     println!("\nReceived 'q' key press. Shutting down...");
@@ -92,6 +92,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         
+        seq.play_next();
+        seq.sleep();
+
         thread::yield_now();
     }
     

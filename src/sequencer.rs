@@ -469,7 +469,6 @@ pub struct Context {
     playing: bool,
     command_rx_ch: mpsc::Receiver<Command>,
     last_cmd: Command,
-    pub midi_conn: Option<Arc<MidiOutputConnection>>,
     /// State transmission channel
     /// 
     /// Unfortunately the current standard Rust channel only
@@ -486,18 +485,10 @@ impl Context {
 
     pub fn enable_play(&mut self) {
         self.playing = true;
-        if let Some(midi_conn) = &mut self.midi_conn {
-            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-            conn.send(&[0xFA]).unwrap();
-        }
     }
 
     pub fn disable_play(&mut self) {
         self.playing = false;
-        if let Some(midi_conn) = &mut self.midi_conn {
-            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-            conn.send(&[0xFC]).unwrap();
-        }
     }
 
     pub fn set_swing(&mut self, swing: Swing) {
@@ -801,6 +792,11 @@ pub struct Sequencer {
     /// have multiple controllers (producers) on the sequencer (consumer) at once
     command_tx_ch: mpsc::Sender<Command>,
     sleeper: spin_sleep::SpinSleeper,
+    pub midi_conn: Option<Arc<MidiOutputConnection>>,
+    // We need this since the midi library is not thread-safe. If we keep track
+    // of when the play is toggled we can send the midi on the main thread
+    // instead of the command thread via the context handler
+    last_play_status: bool,
 }
 
 // Maybe tracks should have independent lengths?
@@ -829,7 +825,6 @@ impl Sequencer {
                 playing: false,
                 command_rx_ch: command_rx,
                 last_cmd: Command::Unspecified,
-                midi_conn: None,
                 stream,
                 state_tx_ch: vec![]
             }),
@@ -840,7 +835,9 @@ impl Sequencer {
             ppb: 24*4,
             pulse_idx: 0,
             command_tx_ch: command_tx,
-            sleeper: spin_sleep::SpinSleeper::new(1_012_550_000).with_spin_strategy(spin_sleep::SpinStrategy::SpinLoopHint)
+            sleeper: spin_sleep::SpinSleeper::new(1_012_550_000).with_spin_strategy(spin_sleep::SpinStrategy::SpinLoopHint),
+            midi_conn: None,
+            last_play_status: false,
         };
         s.ctx.with_lock(|ctx| {
             if let Err(e) = ctx.refresh_saved_patterns() {
@@ -873,9 +870,7 @@ impl Sequencer {
     pub fn connect_midi(&mut self, port: MidiOutputPort) -> Result<(), Box<dyn Error>> {
         let midi_output = MidiOutput::new("Sequencer")?;
         let conn = midi_output.connect(&port, "Sequencer")?;
-        self.ctx.with_lock(|ctx| {
-            ctx.midi_conn = Some(Arc::new(conn));
-        });
+        self.midi_conn = Some(Arc::new(conn));
         Ok(())
     }
 
@@ -904,9 +899,28 @@ impl Sequencer {
         }
     }
 
-    /// The VIP function. Plays tracks, sends state, updates latency
-    fn play_next(&mut self) {
+    fn send_midi_byte(&mut self, byte: u8) {
+        if let Some(midi_conn) = &mut self.midi_conn {
+            let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
+            conn.send(&[byte]).unwrap();
+        }
+    }
+
+    /// The VIP function. Plays tracks, sends state, sends midi, updates latency
+    pub fn play_next(&mut self) {
         let playing = self.ctx.with_lock(|ctx| { ctx.playing });
+
+        // Send midi start/stop signals if play is toggled
+        if playing != self.last_play_status {
+            if playing {
+                self.last_play_status = true;
+                self.send_midi_byte(0xFA);
+            } else {
+                self.last_play_status = false;
+                self.send_midi_byte(0xFC);
+            }
+        }
+
         if playing {
             let start = Instant::now();
             // If pattern is queued, we switch to it on the 0 to maintain
@@ -964,19 +978,9 @@ impl Sequencer {
                         tracks[i].sink.skip_one();
                     }
                 }
-
-                // if the ppb cycle has reset, send a start signal
-                // to sync devices (clock is just for tempo)
-                if let Some(midi_conn) = &mut ctx.midi_conn {
-                    let conn = Arc::<MidiOutputConnection>::get_mut(midi_conn).unwrap();
-                    // if self.pulse_idx % self.ppb == 0 {
-                    //     // start
-                    //     conn.send(&[0xFA]).unwrap();
-                    // }
-                    // clock
-                    conn.send(&[0xF8]).unwrap();
-                }
             });
+
+            self.send_midi_byte(0xF8);
             self.pulse_idx = (self.pulse_idx + 1) % self.ppb;
 
             self.set_latency(Instant::now().duration_since(start));
@@ -1165,7 +1169,7 @@ impl Sequencer {
     }
 
     /// Sleep between pulses
-    fn sleep(&self) {
+    pub fn sleep(&self) {
         self.sleeper.sleep(self.sleep_interval);
     }
 
