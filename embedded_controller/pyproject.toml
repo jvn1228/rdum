@@ -5,6 +5,14 @@ description = "Embedded controller for the RDUM drum machine (CircuitPython libs
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "numpy>=2.3.0",
+    "pyzmq>=26.4.0",
+    "protobuf>=5.29.3",
+    "pillow>=11.2.1",
+]
+
+[project.optional-dependencies]
+rpi = [
     "gpiozero>=2.0.1",
     "adafruit-blinka>=8.58.1",
     "adafruit-circuitpython-ssd1306>=2.12.20",
@@ -14,10 +22,9 @@ dependencies = [
     "adafruit_circuitpython_mcp3xxx>=1.4.20",
     "gpiod>=2.3.0",
     "lgpio>=0.2.2",
-    "pyzmq>=26.4.0",
-    "protobuf>=5.29.3",
-    "pillow>=11.2.1",
     "Adafruit-Blinka-Raspberry-Pi5-Neopixel>=1.0.0rc2",
     "adafruit-circuitpython-pixelbuf>=2.0.8",
-    "numpy>=2.3.0"
+]
+emulated = [
+    "pynput>=1.8.1"
 ]

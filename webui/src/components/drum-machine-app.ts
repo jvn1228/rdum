@@ -43,7 +43,7 @@ export class DrumMachineApp extends LitElement {
 
   constructor() {
     super();
-    this.webSocketService = new WebSocketService();
+    this.webSocketService = new WebSocketService("ws://192.168.68.83:8080");
     this.webSocketService.addStateListener(this.handleStateUpdate.bind(this));
     this.webSocketService.addFileListener(this.handleFileStateUpdate.bind(this));
   }

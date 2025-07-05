@@ -1,5 +1,4 @@
-use rodio::{OutputStreamHandle, Sink, Source};
-use tokio::time::error::Elapsed;                                                                                     
+use rodio::{OutputStreamHandle, Sink, Source};                                                                                     
 use std::{sync::mpsc, time::Duration};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -1080,17 +1079,17 @@ impl Sequencer {
                     match cmd {
                         Command::SetTempo(bpm) => ctx.set_tempo(bpm),
                         Command::PlaySound(trk_id, vel) => (|trk_id, vel| {
-                                let trk: &mut Track = &mut ctx.patterns[ctx.pattern_id].tracks[trk_id];
-                                let mut vel = vel;
-                                let v = &mut vel;
-                                Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
-                                let trks = &ctx.patterns[ctx.pattern_id].tracks;
-                                for i in 0..trks.len() {
-                                    if ctx.patterns[ctx.pattern_id].is_trk_choked(&vec![trk_id], i) {
-                                        trks[i].sink.skip_one();
-                                    }
+                            let trk: &mut Track = &mut ctx.patterns[ctx.pattern_id].tracks[trk_id];
+                            let mut vel = vel;
+                            let v = &mut vel;
+                            Sequencer::append_sample_to_sink(trk.sink.clone(), trk.sample.clone(), v);
+                            let trks = &ctx.patterns[ctx.pattern_id].tracks;
+                            for i in 0..trks.len() {
+                                if ctx.patterns[ctx.pattern_id].is_trk_choked(&vec![trk_id], i) {
+                                    trks[i].sink.skip_one();
                                 }
-                            })(trk_id, vel),
+                            }
+                        })(trk_id, vel),
                         Command::PlaySequencer => ctx.enable_play(),
                         Command::StopSequencer => ctx.disable_play(),
                         Command::SetDivision(div) => ctx.patterns[ctx.pattern_id].division = div,

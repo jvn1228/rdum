@@ -6,6 +6,7 @@ use zmq;
 use prost_types;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Instant;
 
 pub mod state {
     // Include the generated Protocol Buffer code

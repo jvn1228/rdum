@@ -3,7 +3,7 @@ from PIL import ImageDraw, ImageFont
 from abc import ABC, abstractmethod
 from zmq_channel import State, ZMQChannel
 from proto_gen import state_pb2
-from util import Pi5Pixelbuf, Switch
+from hardware import Pi5Pixelbuf, Switch
 
 from dataclasses import dataclass, field
 import util
